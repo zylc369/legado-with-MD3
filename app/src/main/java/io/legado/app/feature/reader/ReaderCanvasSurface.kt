@@ -22,6 +22,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.magnifier
@@ -76,6 +78,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.ScrollAxisRange
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
@@ -84,7 +87,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.verticalScrollAxisRange
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -1815,28 +1817,24 @@ fun ReaderCanvasSurface(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
-        // 朗读页脚快捷操作：挂在页脚文字上方（contentBottomPx 即正文底、页脚带的顶边）。
-        // 放在根 Box 的最后一个子节点，确保盖在正文与页脚之上并可点击；其 clickable 区域
-        // 只在按钮本身，不影响其余区域的分区点击。
-        if (isReadAloudRunning && current.contentBottomPx > 0f) {
-            var readAloudFooterHeight by remember { mutableIntStateOf(0) }
-            ReaderReadAloudFooterControls(
-                running = isReadAloudRunning,
-                paused = isReadAloudPaused,
+        // 朗读页脚快捷操作：挂在页脚带 [contentBottomPx, 画布底] 正中（默认页脚中槽为空），
+        // 放在根 Box 的最后一个子节点，确保盖在正文与页脚之上并可点击；其点击区域只在
+        // 按钮本身，不影响其余区域的分区点击。显隐交给控件的 AnimatedVisibility 做淡入淡出。
+        if (current.contentBottomPx > 0f) {
+            val footerBandHeightPx = (canvasHeightPx - current.contentBottomPx).coerceAtLeast(0f)
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset {
-                        // 竖直居中于页脚带 [contentBottomPx, canvasHeight]：默认页脚中槽为空，
-                        // 暂停键正好落在页脚中间。
-                        IntOffset(
-                            0,
-                            ((current.contentBottomPx + canvasHeightPx) / 2f -
-                                readAloudFooterHeight / 2f).roundToInt(),
-                        )
-                    }
-                    .onSizeChanged { readAloudFooterHeight = it.height },
-                onTogglePause = onToggleReadAloudPause,
-            )
+                    .fillMaxWidth()
+                    .offset { IntOffset(0, current.contentBottomPx.roundToInt()) }
+                    .height(with(LocalDensity.current) { footerBandHeightPx.toDp() }),
+                contentAlignment = Alignment.Center,
+            ) {
+                ReaderReadAloudFooterControls(
+                    running = isReadAloudRunning,
+                    paused = isReadAloudPaused,
+                    onTogglePause = onToggleReadAloudPause,
+                )
+            }
         }
     }
 }
