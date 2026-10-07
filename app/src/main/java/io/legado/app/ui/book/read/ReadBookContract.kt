@@ -86,7 +86,7 @@ data class ReadBookStyleConfig(
     val bgStrEInk: String = "#FFFFFF",
     val darkStatusIconEInk: Boolean = true,
     // Text
-    val textSize: Int = 20,
+    val textSize: Int = 24,
     val textColor: String = "#3E3D3B",
     val textColorNight: String = "#CCCCCC",
     val textColorEInk: String = "#000000",
@@ -116,9 +116,9 @@ data class ReadBookStyleConfig(
 @Stable
 data class ReadSheetConfigUiState(
     /** 标题字号 <8 时按「正文字号 + 偏移」解释，故正文字号也要进弹层快照。 */
-    val textSize: Int = 20,
+    val textSize: Int = 24,
     val letterSpacing: Float = 0f,
-    val lineSpacing: Int = 0,
+    val lineSpacing: Int = 11,
     val paragraphSpacing: Int = 0,
     val paragraphIndentCount: Int = 2,
     val textItalic: Boolean = false,

@@ -561,7 +561,7 @@ object ReadBookConfig {
         val footerFontSize: Int = 12,//页脚字号
         val applyHeaderStyle: Boolean = true,//页脚是否应用页眉字体样式
         val textBold: Int = 500,//是否粗体字 0:正常, 1:粗体, 2:细体
-        val textSize: Int = 20,//文字大小
+        val textSize: Int = 24,//文字大小
         val textItalic: Boolean = false,// 是否启用斜体
         val textShadow: Boolean = false,// 是否启用阴影
         val shadowRadius: Float = 16f,// 阴影模糊半径
@@ -570,7 +570,7 @@ object ReadBookConfig {
         private val shadowColor: String = "#3E3D3B",
         private val shadowColorN: String = "#3E3D3B",
         val letterSpacing: Float = 0.1f,//字间距
-        val lineSpacingExtra: Int = 12,//行间距
+        val lineSpacingExtra: Int = 11,//行间距
         val paragraphSpacing: Int = 2,//段距
         val titleMode: Int = 0,//标题位置 0:居左 1:居中 2:隐藏
         val titleSize: Int = 20,

@@ -371,7 +371,7 @@ class ReadSettingsRepository(
             volumeKeyPage = compatDsValue(Keys.VolumeKeyPage, false),
             volumeKeyPageOnPlay = compatDsValue(Keys.VolumeKeyPageOnPlay, false),
             keyPageOnLongPress = compatDsValue(Keys.KeyPageOnLongPress, false),
-            swipeToAddBookmark = compatDsValue(Keys.SwipeToAddBookmark, false),
+            swipeToAddBookmark = compatDsValue(Keys.SwipeToAddBookmark, true),
             bookmarkBadgeImage = compatDsValue(Keys.BookmarkBadgeImage, ""),
             bookmarkBadgeSize = compatDsValue(Keys.BookmarkBadgeSize, 10),
             pageTouchSlop = compatDsValue(Keys.PageTouchSlop, 0),
