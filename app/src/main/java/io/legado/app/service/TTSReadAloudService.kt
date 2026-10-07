@@ -118,7 +118,10 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 defaultVoiceName = it.defaultVoice?.name.orEmpty()
                 activeVoiceName = defaultVoiceName
                 ttsInitFinish = true
-                play()
+                // 首次启动时 TTS 初始化常早于后台取章/分段完成，此刻列表还是空的。若直接 play()，
+                // 会走「列表为空」兜底去 ReadBook.readAloud()（不带选中位置），把正在进行的、带
+                // 选中位置的准备任务顶掉，于是从页首开始朗读。准备完成后的 play() 会再触发播放。
+                if (contentList.isNotEmpty()) play()
             }
         } else {
             toastOnUi(R.string.tts_init_failed)

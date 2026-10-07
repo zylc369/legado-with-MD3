@@ -1446,14 +1446,14 @@ class ReadBookViewModel(
             is ReadBookIntent.ToggleDayNight -> styleDelegate.toggleDayNight()
             // Text action menu
             is ReadBookIntent.TextActionAloud -> {
-                when (readAloudSettingsRepository.currentSettings.contentSelectSpeakMode) {
-                    1 -> when {
-                        intent.chapterPosition != null -> _effects.tryEmit(
-                            ReadBookEffect.TextActionAloudPosition(intent.chapterPosition)
-                        )
-                        else -> _effects.tryEmit(ReadBookEffect.TextActionSpeak(intent.text))
-                    }
-                    else -> _effects.tryEmit(ReadBookEffect.TextActionSpeak(intent.text))
+                // 选中文字后点“朗读”应从选中位置开始续读，而不是只念选中的那点字。
+                // 拿得到章内正文位置就走朗读服务的续读路径（会一直读到用户暂停/停止）；
+                // 只有纯标题选区等拿不到正文位置时，才退回一次性朗读选中文本。
+                val position = intent.chapterPosition
+                if (position != null) {
+                    _effects.tryEmit(ReadBookEffect.TextActionAloudPosition(position))
+                } else {
+                    _effects.tryEmit(ReadBookEffect.TextActionSpeak(intent.text))
                 }
             }
 
