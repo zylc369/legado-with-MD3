@@ -63,7 +63,7 @@ data class ThemeSettings(
     val itemDividerWidth: Float = 1f,
     val itemDividerLength: Float = 80f,
     val itemDividerColor: Int = 0,
-    val eyeProtectionEnabled: Boolean = false,
+    val eyeProtectionEnabled: Boolean = true,
     val colorTemperature: Int = 50,
     val eyeProtectionAutoNight: Boolean = false,
     val eyeProtectionSchedule: Boolean = false,

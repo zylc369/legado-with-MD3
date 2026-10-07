@@ -347,7 +347,7 @@ class ReadSettingsRepository(
         val readStyleSelect = compatDsValue(Keys.ReadStyleSelect, 0)
         return ReadSettings(
             screenOrientation = compatDsValue(Keys.ScreenOrientation, "0"),
-            keepLight = compatDsValue(Keys.KeepLight, "0"),
+            keepLight = compatDsValue(Keys.KeepLight, "-1"),
             hideStatusBar = compatDsValue(Keys.HideStatusBar, false),
             hideNavigationBar = compatDsValue(Keys.HideNavigationBar, false),
             paddingDisplayCutouts = compatDsValue(Keys.PaddingDisplayCutouts, false),
@@ -368,8 +368,8 @@ class ReadSettingsRepository(
             doubleHorizontalPage = compatDsValue(Keys.DoubleHorizontalPage, "0"),
             progressBarBehavior = compatDsValue(Keys.ProgressBarBehavior, "page"),
             mouseWheelPage = compatDsValue(Keys.MouseWheelPage, true),
-            volumeKeyPage = compatDsValue(Keys.VolumeKeyPage, true),
-            volumeKeyPageOnPlay = compatDsValue(Keys.VolumeKeyPageOnPlay, true),
+            volumeKeyPage = compatDsValue(Keys.VolumeKeyPage, false),
+            volumeKeyPageOnPlay = compatDsValue(Keys.VolumeKeyPageOnPlay, false),
             keyPageOnLongPress = compatDsValue(Keys.KeyPageOnLongPress, false),
             swipeToAddBookmark = compatDsValue(Keys.SwipeToAddBookmark, false),
             bookmarkBadgeImage = compatDsValue(Keys.BookmarkBadgeImage, ""),
@@ -382,7 +382,7 @@ class ReadSettingsRepository(
             autoChangeSource = compatDsValue(Keys.AutoChangeSource, true),
             autoSuggestDayNight = compatDsValue(Keys.AutoSuggestDayNight, false),
             readingAnchorEnabled = compatDsValue(Keys.ReadingAnchorEnabled, true),
-            readAloudDetachReminderEnabled = compatDsValue(Keys.ReadAloudDetachReminderEnabled, false),
+            readAloudDetachReminderEnabled = compatDsValue(Keys.ReadAloudDetachReminderEnabled, true),
             selectText = compatDsValue(Keys.SelectText, true),
             noAnimScrollPage = compatDsValue(Keys.NoAnimScrollPage, false),
             clickImgWay = compatDsValue(Keys.ClickImgWay, "2"),

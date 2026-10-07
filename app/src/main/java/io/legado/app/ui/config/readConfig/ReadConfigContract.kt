@@ -6,7 +6,7 @@ import io.legado.app.ui.book.read.EyeProtectionUiState
 @Stable
 data class ReadConfigUiState(
     val screenOrientation: String = "0",
-    val keepLight: String = "0",
+    val keepLight: String = "-1",
     val hideStatusBar: Boolean = false,
     val hideNavigationBar: Boolean = false,
     val paddingDisplayCutouts: Boolean = false,
@@ -27,8 +27,8 @@ data class ReadConfigUiState(
     val doubleHorizontalPage: String = "0",
     val progressBarBehavior: String = "page",
     val mouseWheelPage: Boolean = true,
-    val volumeKeyPage: Boolean = true,
-    val volumeKeyPageOnPlay: Boolean = true,
+    val volumeKeyPage: Boolean = false,
+    val volumeKeyPageOnPlay: Boolean = false,
     val keyPageOnLongPress: Boolean = false,
     val pageTouchSlop: Int = 0,
     val sliderVibrator: Boolean = false,
@@ -38,7 +38,7 @@ data class ReadConfigUiState(
     val autoChangeSource: Boolean = true,
     val autoSuggestDayNight: Boolean = false,
     val readingAnchorEnabled: Boolean = true,
-    val readAloudDetachReminderEnabled: Boolean = false,
+    val readAloudDetachReminderEnabled: Boolean = true,
     val selectText: Boolean = true,
     val noAnimScrollPage: Boolean = false,
     val clickImgWay: String = "2",

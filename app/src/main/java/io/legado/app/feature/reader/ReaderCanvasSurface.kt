@@ -32,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -83,6 +84,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.semantics.verticalScrollAxisRange
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -215,6 +217,10 @@ fun ReaderCanvasSurface(
     autoReadSpeedSeconds: Int,
     isEInkMode: Boolean,
     onAutoPageStop: () -> Unit,
+    /** 朗读中：页脚显示暂停/继续按钮。（在本页朗读/跳转回朗读页沿用脱离时的悬浮胶囊。） */
+    isReadAloudRunning: Boolean,
+    isReadAloudPaused: Boolean,
+    onToggleReadAloudPause: () -> Unit,
     onShowSelectionMenu: (ReaderSelection, String, ReaderSelectionMenuAnchor) -> Unit,
     onDismissSelectionMenu: () -> Unit,
     onElementClick: (ReaderElement) -> Boolean,
@@ -898,7 +904,9 @@ fun ReaderCanvasSurface(
     val nextPageDescription = stringResource(io.legado.app.R.string.next_page)
     val menuDescription = stringResource(io.legado.app.R.string.menu)
     val accessibilityPage = ReaderAccessibilityPolicy.snapshot(pages)
+    var canvasHeightPx by remember { mutableIntStateOf(0) }
     Box(modifier
+        .onSizeChanged { canvasHeightPx = it.height }
         .clearAndSetSemantics {
             accessibilityPage?.let { page ->
                 text = AnnotatedString(page.text)
@@ -1805,6 +1813,29 @@ fun ReaderCanvasSurface(
                         RoundedCornerShape(PullBookmarkDefaults.HINT_CORNER_RADIUS_DP.dp),
                     )
                     .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        // 朗读页脚快捷操作：挂在页脚文字上方（contentBottomPx 即正文底、页脚带的顶边）。
+        // 放在根 Box 的最后一个子节点，确保盖在正文与页脚之上并可点击；其 clickable 区域
+        // 只在按钮本身，不影响其余区域的分区点击。
+        if (isReadAloudRunning && current.contentBottomPx > 0f) {
+            var readAloudFooterHeight by remember { mutableIntStateOf(0) }
+            ReaderReadAloudFooterControls(
+                running = isReadAloudRunning,
+                paused = isReadAloudPaused,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset {
+                        // 竖直居中于页脚带 [contentBottomPx, canvasHeight]：默认页脚中槽为空，
+                        // 暂停键正好落在页脚中间。
+                        IntOffset(
+                            0,
+                            ((current.contentBottomPx + canvasHeightPx) / 2f -
+                                readAloudFooterHeight / 2f).roundToInt(),
+                        )
+                    }
+                    .onSizeChanged { readAloudFooterHeight = it.height },
+                onTogglePause = onToggleReadAloudPause,
             )
         }
     }
