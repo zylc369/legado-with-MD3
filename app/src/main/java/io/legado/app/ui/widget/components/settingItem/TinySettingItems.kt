@@ -321,7 +321,12 @@ fun TinySliderSettingItem(
                 value = value,
                 displayValue = displayValue,
                 valueRange = valueRange,
-                onValueChange = onValueChange,
+                // +/- 是离散步进：除了更新预览，还要触发“完成”回调，
+                // 否则只改本地预览（拖动滑块松手才提交）的场景下点加减号不会落库。
+                onValueChange = { newValue ->
+                    onValueChange(newValue)
+                    onValueChangeFinished()
+                },
                 enabled = enabled,
                 stepSize = stepSize,
                 showDecimal = showDecimal,
