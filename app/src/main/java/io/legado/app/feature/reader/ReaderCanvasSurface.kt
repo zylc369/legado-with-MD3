@@ -473,11 +473,20 @@ fun ReaderCanvasSurface(
         val direction = pendingTurn.takeIf { pendingTurnOrigin == latestPages.current?.id }
         pendingTurn = null
         pendingTurnOrigin = null
-        return when (direction) {
+        val window = when (direction) {
             ReaderTurnDirection.PREVIOUS -> latestPreviousPage()
             ReaderTurnDirection.NEXT -> latestNextPage()
             null -> null
         }
+        // 翻页收尾：宿主回调已同步换窗并返回新窗口，但 StateFlow 回声要到下一帧才进组合。
+        // 若此刻就复位 transition/turnDirection（见 settlePageTurn 末尾），本帧绘制的仍是
+        // 组合里的旧 current——刚被甩出去的那一页会全屏重绘一帧（表现为翻页末尾闪一下旧页）。
+        // 写入 pending 让绘制当帧就落到新窗口，与滚动跨页共用同一份"宿主回调同步换窗"语义。
+        if (window != null) {
+            scrollPendingBase = latestPages
+            scrollPendingWindow = window
+        }
+        return window
     }
     fun settlePageTurn(decision: ReaderTransitionDecision) {
         pageMotionJob?.cancel()
@@ -522,7 +531,8 @@ fun ReaderCanvasSurface(
         if (durationMillis == 0) {
             displayOffset = decision.targetOffsetPx
             completePendingTurn()
-            displayOffset = 0f
+            // 不复位 displayOffset：复位改由 [turnDirection] 变 null 之后的重组帧统一处理。
+            // 本帧若组合尚未跟上，仍按收尾位移把 incoming 页留在原位，旧 current 停在屏幕外。
             applyTransition(ReaderPageTransition())
             return
         }
@@ -554,7 +564,7 @@ fun ReaderCanvasSurface(
                 }
             }
             completePendingTurn()
-            displayOffset = 0f
+            // displayOffset 复位延后：见 duration==0 分支的说明。
             applyTransition(ReaderPageTransition())
         }
     }
@@ -790,6 +800,11 @@ fun ReaderCanvasSurface(
             displayOffset = 0f
             applyTransition(ReaderPageTransition())
         }
+    }
+    LaunchedEffect(turnDirection) {
+        // 换页回合结束后（turnDirection 归 null）再复位位移量：此时绘制层已按 layerDirection==null
+        // 走恒等变换，displayOffset 不再参与画面。放在组合之后复位，避免与分支切换抢同一帧。
+        if (turnDirection == null) displayOffset = 0f
     }
     LaunchedEffect(current.layoutRevision) {
         val previousRevision = selectionLayoutRevision
@@ -1537,15 +1552,29 @@ fun ReaderCanvasSurface(
             ).transforms(transitionMode)
             @Composable
             fun PageLayer(page: ReaderPage, role: PagedLayerRole, offsetY: () -> Float) {
+                // “本回合画哪几页/谁在上面”由组合期的 [turnDirection] 决定；层变换也必须用同一个
+                // 快照值判断角色，不能改读每秒都在变的 [transition]（draw 期状态）。否则翻页收尾
+                // 那一帧可能出现：组合仍按“翻页中”叠放（current 在上），但层的位移已被复位到 0，
+                // 于是刚翻走的旧 current 被平移到屏幕正中盖在新页上闪一帧。位移量本身仍在 layer 期
+                // 现读 [displayOffset]，所以拖拽/收尾依旧零重组。
+                val layerDirection = turnDirection
                 ReaderPageCanvas(
                     page, backgroundColor, pageBackgroundImage, backgroundImageAlpha, selectionColor, textAccentColor,
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val transform = transition
-                                .copy(offsetPx = displayOffset)
-                                .transforms(transitionMode)
-                                .forRole(role)
+                            if (layerDirection == null) {
+                                translationX = 0f
+                                translationY = offsetY()
+                                alpha = 1f
+                                return@graphicsLayer
+                            }
+                            val transform = ReaderPageTransition(
+                                direction = layerDirection,
+                                offsetPx = displayOffset,
+                                pageExtentPx = current.widthPx.toFloat(),
+                                dragging = true,
+                            ).transforms(transitionMode).forRole(role)
                             if (transform == null) {
                                 // 与本回合方向不一致（理论上被上面的预览挡住）：显式隐藏，
                                 // 避免残留上一次的位移把邻页留在屏幕上。
