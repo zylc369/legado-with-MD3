@@ -280,7 +280,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                         md5SpeakFileName(text, httpTts = itemHttpTts, sourceKey = sourceKey)
                     val speakText = text.replace(AppPattern.notReadAloudRegex, "")
                     if (speakText.isEmpty()) {
-                        AppLog.put("阅读段落内容为空，使用无声音频代替。\n朗读文本：$text")
+                        AppLog.put("阅读段落内容为空，使用无声音频代替。段落长度=${text.length}")
                         createSilentSound(fileName)
                     } else if (!hasSpeakFile(fileName)) {
                         runCatching {
@@ -655,7 +655,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                     }
                     val speakText = text.replace(AppPattern.notReadAloudRegex, "")
                     if (speakText.isEmpty()) {
-                        AppLog.put("阅读段落内容为空，使用无声音频代替。\n朗读文本：$speakText")
+                        AppLog.put("阅读段落内容为空，使用无声音频代替。段落长度=${speakText.length}")
                     }
                     val itemHttpTts = httpTtsForCue(index, httpTts)
                     val fileName = md5SpeakFileName(text, httpTts = itemHttpTts)
@@ -899,7 +899,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                             AppLog.put(msg1, e, true)
                             throw e
                         } else {
-                            AppLog.put("TTS下载音频出错，使用无声音频代替。\n朗读文本：$speakText")
+                            AppLog.put("TTS下载音频出错，使用无声音频代替。段落长度=${speakText.length}")
                             break
                         }
                     }
@@ -1207,7 +1207,7 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
-        AppLog.put("朗读错误\n${contentList[nowSpeak]}", error)
+        AppLog.put("朗读错误", error)
         deleteCurrentSpeakFile()
         playErrorNo++
         if (playErrorNo >= 5) {

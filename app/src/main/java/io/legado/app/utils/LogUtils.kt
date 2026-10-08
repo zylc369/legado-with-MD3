@@ -9,13 +9,12 @@ import android.webkit.WebSettings
 import io.legado.app.BuildConfig
 import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
-import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.help.globalExecutor
-import org.koin.core.context.GlobalContext
 import splitties.init.appCtx
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.logging.FileHandler
+import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger
@@ -25,10 +24,18 @@ import kotlin.time.Duration.Companion.days
 @Suppress("unused")
 object LogUtils {
     const val TIME_PATTERN = "yy-MM-dd HH:mm:ss.SSS"
-    val logTimeFormat by lazy { SimpleDateFormat(TIME_PATTERN) }
 
-    private val otherSettingsGateway
-        get() = GlobalContext.get().get<OtherSettingsGateway>()
+    /** 日志文件名按天归档：`appLog-<yyyy-MM-dd>.txt`，同一天多次启动追加到同一份。 */
+    private const val DATE_PATTERN = "yyyy-MM-dd"
+
+    /** 单个日志文件上限 50MB；达到后丢弃最旧的 5MB，保证永远保留最近的日志且磁盘占用有上限。 */
+    const val MAX_LOG_FILE_BYTES = 50L * 1024 * 1024
+    private const val TRIM_LOG_BYTES = 5L * 1024 * 1024
+
+    /** 日志保留天数，超过即清理。 */
+    private const val LOG_KEEP_DAYS = 14
+
+    val logTimeFormat by lazy { SimpleDateFormat(TIME_PATTERN) }
 
     fun init(context: Context) {
         fileHandler = createFileHandler(context)?.also {
@@ -56,34 +63,32 @@ object LogUtils {
         Logger.getLogger("Legado")
     }
 
-    private var fileHandler: FileHandler? = null
+    private var fileHandler: Handler? = null
 
-    private fun createFileHandler(context: Context): FileHandler? {
+    private fun createFileHandler(context: Context): Handler? {
         try {
             val root = context.externalCacheDir ?: return null
             val logFolder = FileUtils.createFolderIfNotExist(root, "logs")
             globalExecutor.execute {
-                val expiredTime = System.currentTimeMillis() - 7.days.inWholeMilliseconds
+                val expiredTime = System.currentTimeMillis() -
+                    LOG_KEEP_DAYS.days.inWholeMilliseconds
                 logFolder.listFiles()?.forEach {
                     if (it.lastModified() < expiredTime || it.name.endsWith(".lck")) {
                         it.delete()
                     }
                 }
             }
-            val date = getCurrentDateStr(TIME_PATTERN)
+            val date = getCurrentDateStr(DATE_PATTERN)
             val logPath = FileUtils.getPath(root = logFolder, "appLog-$date.txt")
-            return AsyncFileHandler(logPath).apply {
+            return AsyncFileHandler(File(logPath), MAX_LOG_FILE_BYTES, TRIM_LOG_BYTES).apply {
                 formatter = object : java.util.logging.Formatter() {
                     override fun format(record: LogRecord): String {
                         // 设置文件输出格式
                         return getCurrentDateStr(TIME_PATTERN) + ": " + record.message + "\n"
                     }
                 }
-                level = if (otherSettingsGateway.currentSettings.recordLog) {
-                    Level.INFO
-                } else {
-                    Level.OFF
-                }
+                // 磁盘日志强制开启，不允许关闭。
+                level = Level.INFO
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -93,12 +98,8 @@ object LogUtils {
     }
 
     fun upLevel() {
-        val level = if (otherSettingsGateway.currentSettings.recordLog) {
-            Level.INFO
-        } else {
-            Level.OFF
-        }
-        fileHandler?.level = level
+        // 磁盘日志强制开启，不允许关闭。
+        fileHandler?.level = Level.INFO
     }
 
     /**

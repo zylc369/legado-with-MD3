@@ -73,7 +73,8 @@ fun ReadBookFloatingActionBar(
 
 const val DEFAULT_CONTAINER_ALPHA = 0.7f
 
-/** 朗读位置脱离当前显示页时：跳回朗读位置，或从当前页重新朗读。半透明以免遮挡正文。 */
+/** 朗读位置脱离当前显示页
+ * 时：跳回朗读位置，或从当前页重新朗读。半透明以免遮挡正文。 */
 @Composable
 private fun ReadAloudDetachedCapsule(onIntent: (ReadBookIntent) -> Unit) {
     Row(

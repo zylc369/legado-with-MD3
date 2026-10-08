@@ -3,6 +3,7 @@ package io.legado.app.ui.main
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -1325,11 +1326,12 @@ fun MainActivity.mainEntryProvider(
         )
     }
 
-    entry<MainRouteBookVoiceCasting> { route ->
+    entry<MainRouteBookVoiceCasting>(metadata = modalOverlayEntryMetadata()) { route ->
         val viewModel = koinViewModel<BookVoiceCastingViewModel>(
             key = "BookVoiceCasting:${route.bookUrl}",
             parameters = { parametersOf(route.bookUrl) },
         )
+        BackHandler { onNavigateBack() }
         BookVoiceCastingScreen(
             state = viewModel.uiState.collectAsStateWithLifecycle().value,
             onIntent = viewModel::onIntent,
@@ -1339,8 +1341,9 @@ fun MainActivity.mainEntryProvider(
         )
     }
 
-    entry<MainRouteCloudTtsEngines> { route ->
+    entry<MainRouteCloudTtsEngines>(metadata = modalOverlayEntryMetadata()) { route ->
         val viewModel = koinViewModel<CloudTtsViewModel>()
+        BackHandler { onNavigateBack() }
         LaunchedEffect(route.bookUrl) {
             viewModel.onIntent(CloudTtsIntent.SetBookContext(route.bookUrl))
         }
@@ -1378,7 +1381,8 @@ fun MainActivity.mainEntryProvider(
         )
     }
 
-    entry<MainRouteTtsCache> {
+    entry<MainRouteTtsCache>(metadata = modalOverlayEntryMetadata()) {
+        BackHandler { onNavigateBack() }
         TtsCacheRouteScreen(
             onBackClick = { onNavigateBack() },
         )

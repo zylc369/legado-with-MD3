@@ -243,6 +243,11 @@ fun ReadBookRouteScreen(
         }
     }
 
+    // 从朗读配置子页（引擎与音色/缓存/配音）返回、阅读界面重新成为栈顶时，恢复「朗读设置」弹层。
+    LaunchedEffect(isTopRoute) {
+        if (isTopRoute) viewModel.onIntent(ReadBookIntent.ReaderBecameTop)
+    }
+
     DisposableEffect(controller) {
         controller.onComposeRendererAttached()
         onDispose {

@@ -865,6 +865,9 @@ sealed interface ReadBookIntent {
     data object OpenBookVoiceCasting : ReadBookIntent
     data object OpenReadAloudPlayer : ReadBookIntent
     data object OpenClassicReadAloudControls : ReadBookIntent
+
+    /** 阅读界面从子页面返回、重新成为栈顶（用于恢复离开前的朗读配置弹层）。 */
+    data object ReaderBecameTop : ReadBookIntent
     data class SelectFont(val path: String) : ReadBookIntent
     data class SelectTitleFont(val path: String) : ReadBookIntent
     data class SelectTitleSystemTypeface(val index: Int) : ReadBookIntent

@@ -1388,6 +1388,7 @@ class ReadBookViewModel(
             ReadBookIntent.OpenBookVoiceCasting -> readAloudDelegate.openBookVoiceCasting()
             ReadBookIntent.OpenReadAloudPlayer -> readAloudDelegate.openPlayer()
             ReadBookIntent.OpenClassicReadAloudControls -> readAloudDelegate.openClassicControls()
+            ReadBookIntent.ReaderBecameTop -> readAloudDelegate.onReaderBecameTop()
 
             is ReadBookIntent.SelectFont -> styleDelegate.selectFont(intent.path)
             is ReadBookIntent.SelectTitleFont -> styleDelegate.selectTitleFont(intent.path)

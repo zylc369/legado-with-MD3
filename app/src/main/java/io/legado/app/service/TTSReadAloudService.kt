@@ -134,6 +134,10 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             val route = systemVoiceForCurrentCue()
             val requiredEngine = route.engineId
             if (requiredEngine != activeEngine || textToSpeech == null) {
+                AppLog.putDebug(
+                    "朗读：需切换/初始化 TTS 引擎 required=$requiredEngine active=$activeEngine " +
+                        "ttsNull=${textToSpeech == null}"
+                )
                 clearTTS()
                 initTts(requiredEngine)
                 return
@@ -141,10 +145,16 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             applyVoice(route.speakerId)
             applyPreset(route)
         }
-        if (!ttsInitFinish) return
-        if (!requestFocus()) return
+        if (!ttsInitFinish) {
+            AppLog.putDebug("朗读未开始：TTS 尚未初始化完成，等 onTtsInitialized 回调后再播放")
+            return
+        }
+        if (!requestFocus()) {
+            AppLog.putDebug("朗读未开始：未获取到音频焦点")
+            return
+        }
         if (contentList.isEmpty()) {
-            AppLog.putDebug("朗读列表为空")
+            AppLog.put("朗读列表为空，重新准备朗读")
             ReadBook.readAloud()
             return
         }
@@ -181,7 +191,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                     ttsUtteranceListener.onDone(ttsUtteranceId(AppConst.APP_TAG, session, nowSpeak))
                     return@execute
                 }
-                AppLog.putDebug("TTS开始Speak: $text")
+                AppLog.putDebug("TTS开始Speak: 段落长度=${text.length}")
                 val result = tts.runCatching {
                     speak(text, TextToSpeech.QUEUE_FLUSH, null, ttsUtteranceId(AppConst.APP_TAG, session, nowSpeak))
                 }.getOrElse {
@@ -233,7 +243,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                             TextToSpeech.ERROR
                         }
                         if (result == TextToSpeech.ERROR) {
-                            AppLog.put("tts朗读出错:$text")
+                            AppLog.put("tts朗读出错: 段落长度=${text.length}")
                         }
                     }
                     isAddedText = true

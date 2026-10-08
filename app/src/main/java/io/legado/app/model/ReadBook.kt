@@ -77,14 +77,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import splitties.init.appCtx
@@ -154,6 +157,9 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         private set
     @Volatile
     private var readerPaginationSnapshots = emptyMap<Int, ReaderChapterPaginationSnapshot>()
+
+    /** 章节分页快照落地的信号（值 = chapterIndex），供朗读启动时等待排版完成。 */
+    private val paginationLanded = MutableSharedFlow<Int>(extraBufferCapacity = 16)
     @Volatile
     private var readerPaginationEnvironment: ReaderPaginationEnvironment? = null
     var bookSource: BookSource? = null
@@ -612,6 +618,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     fun publishReaderPagination(snapshots: List<ReaderChapterPaginationSnapshot>) {
         readerPaginationSnapshots = snapshots.associateBy { it.chapterIndex }
         snapshots.forEach { snapshot ->
+            paginationLanded.tryEmit(snapshot.chapterIndex)
             wholeBookPageCoordinator.correctChapter(
                 chapterIndex = snapshot.chapterIndex,
                 realPageCount = snapshot.pageCount,
@@ -660,6 +667,32 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
 
     fun readerPagination(chapterIndex: Int = durChapterIndex): ReaderChapterPaginationSnapshot? =
         readerPaginationSnapshots[chapterIndex]
+
+    /**
+     * 等待指定章节的分页快照就绪。
+     *
+     * 朗读启动时该章的排版可能还没落地（`readerPagination == null`），旧逻辑会直接放弃。
+     * 这里已就绪立即返回；否则等待快照落地信号，最多等 [timeoutMillis]，超时返回 null。
+     */
+    suspend fun awaitReaderPagination(
+        chapterIndex: Int,
+        timeoutMillis: Long,
+    ): ReaderChapterPaginationSnapshot? {
+        var result = readerPagination(chapterIndex)
+        if (result != null) return result
+        withTimeoutOrNull(timeoutMillis) {
+            while (result == null) {
+                // 信号 + 短超时兜底：既在快照落地时立即返回，也兜住"订阅前已发射"的竞态。
+                withTimeoutOrNull(PAGINATION_SIGNAL_TICK_MILLIS) {
+                    paginationLanded.first { it == chapterIndex }
+                }
+                result = readerPagination(chapterIndex)
+            }
+        }
+        return result
+    }
+
+    private const val PAGINATION_SIGNAL_TICK_MILLIS = 250L
 
     val readerPaginationGeneration: Long get() = wholeBookPageCoordinator.generation
 

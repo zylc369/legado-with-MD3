@@ -245,21 +245,41 @@ class ReadAloudDelegate(
         scope.launch { syncConfiguredTtsVoices() }
     }
 
-    fun openTtsEnginesAndVoices() {
+    /**
+     * 从朗读配置弹层跳去独立页（引擎与音色 / 缓存 / 配音）时置位：返回阅读界面时把
+     * 「朗读设置」弹层重新打开，让用户回到离开前那一层。
+     */
+    private var reopenConfigOnReturn = false
+
+    /**
+     * 离开阅读界面去朗读配置的子页面。
+     *
+     * 先收起配置弹层——它是独立窗口（ModalBottomSheet），留着会浮在目标全屏页之上；
+     * 同时记住返回时要把它恢复，语义是"返回上一层"而不是回到纯正文。[openPlayer] 的
+     * 路径同理（先收起再跳）。
+     */
+    private fun leaveForConfigSubPage(effect: ReadBookEffect) {
+        reopenConfigOnReturn = true
         host.updateState { it.copy(activeSheet = null) }
-        host.emitEffect(ReadBookEffect.OpenTtsEnginesAndVoices)
+        host.emitEffect(effect)
     }
 
-    fun openTtsCache() {
-        host.updateState { it.copy(activeSheet = null) }
-        host.emitEffect(ReadBookEffect.OpenTtsCache)
-    }
+    fun openTtsEnginesAndVoices() =
+        leaveForConfigSubPage(ReadBookEffect.OpenTtsEnginesAndVoices)
+
+    fun openTtsCache() = leaveForConfigSubPage(ReadBookEffect.OpenTtsCache)
 
     fun openBookVoiceCasting() {
         ReadBook.book?.bookUrl?.let { bookUrl ->
-            host.updateState { it.copy(activeSheet = null) }
-            host.emitEffect(ReadBookEffect.OpenBookVoiceCasting(bookUrl))
+            leaveForConfigSubPage(ReadBookEffect.OpenBookVoiceCasting(bookUrl))
         }
+    }
+
+    /** 阅读界面重新回到栈顶：若之前是去朗读配置子页，恢复「朗读设置」弹层。 */
+    fun onReaderBecameTop() {
+        if (!reopenConfigOnReturn) return
+        reopenConfigOnReturn = false
+        openConfigSheet()
     }
 
     fun openSystemTtsSettings() {

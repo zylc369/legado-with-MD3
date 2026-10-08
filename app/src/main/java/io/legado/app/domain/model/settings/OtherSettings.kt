@@ -19,7 +19,7 @@ data class OtherSettings(
     val sourceEditMaxLine: Int = Int.MAX_VALUE,
     val webPort: Int = 1122,
     val processText: Boolean = true,
-    val recordLog: Boolean = false,
+    val recordLog: Boolean = true,
     val recordHeapDump: Boolean = false,
     val audioPlayUseWakeLock: Boolean = false,
     val importKeepName: Boolean = false,

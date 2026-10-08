@@ -166,6 +166,10 @@ abstract class BaseReadAloudService : BaseService(),
         }
 
         private const val TAG = "BaseReadAloudService"
+
+        /** 启动朗读时等待章节分页快照落地的最长时间，超时才判定失败。 */
+        private const val READ_ALOUD_PAGINATION_WAIT_MILLIS = 8_000L
+
         private const val ACTION_ADD_TIMER = "io.legado.app.action.ADD_READ_ALOUD_TIMER"
         private const val ACTION_OPEN_MEDIA_CONTROL_READER =
             "io.legado.app.action.OPEN_READ_ALOUD_MEDIA_CONTROL"
@@ -423,11 +427,26 @@ abstract class BaseReadAloudService : BaseService(),
         val generation = ++prepareReadAloudGeneration
         prepareReadAloudJob?.cancel()
         prepareReadAloudJob = execute(executeContext = IO) {
-            val input = ReadBook.readerChapterInputWindow.current ?: return@execute
-            val pagination = ReadBook.readerPagination(input.chapter.index) ?: run {
-                AppLog.put("启动朗读失败：章节分页未完成 chapterIndex=${input.chapter.index}")
+            val input = ReadBook.readerChapterInputWindow.current ?: run {
+                AppLog.put("启动朗读失败：正文未加载，无法开始朗读")
                 return@execute
             }
+            val chapterIndex = input.chapter.index
+            // 章节分页快照可能还没落地（刚进章/刚切章就点朗读）：等待排版完成，而不是直接放弃。
+            var pagination = ReadBook.readerPagination(chapterIndex)
+            if (pagination == null) {
+                AppLog.putDebug("朗读启动：章节分页未就绪，等待排版 chapterIndex=$chapterIndex")
+                pagination = ReadBook.awaitReaderPagination(
+                    chapterIndex = chapterIndex,
+                    timeoutMillis = READ_ALOUD_PAGINATION_WAIT_MILLIS,
+                )
+            }
+            if (pagination == null) {
+                AppLog.put("启动朗读失败：等待章节分页超时 chapterIndex=$chapterIndex")
+                toastOnUi(R.string.read_aloud_start_pagination_timeout)
+                return@execute
+            }
+            if (generation != prepareReadAloudGeneration) return@execute
             val contentSplitMode = resolveContentSplitMode()
             val preparedChapter = ReaderReadAloudChapter.create(
                 chapterIndex = input.chapter.index,

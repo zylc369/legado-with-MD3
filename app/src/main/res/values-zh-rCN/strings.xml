@@ -191,6 +191,7 @@
     <string name="read_aloud_s">点击打开阅读界面</string>
     <string name="back_to_speaking_position">回到朗读位置</string>
     <string name="read_aloud_from_here">从此处朗读</string>
+    <string name="read_aloud_start_pagination_timeout">朗读启动失败：章节排版未完成，请稍后重试</string>
     <string name="audio_play">播放</string>
     <string name="audio_play_t">正在播放</string>
     <string name="audio_play_s">点击打开播放界面</string>

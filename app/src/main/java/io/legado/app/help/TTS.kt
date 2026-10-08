@@ -88,7 +88,7 @@ class TTS {
             text?.splitNotBlank("\n")?.forEachIndexed { i, s ->
                 result = tts.speak(s, TextToSpeech.QUEUE_ADD, null, tag + i)
                 if (result == TextToSpeech.ERROR) {
-                    AppLog.put("tts朗读出错:$text")
+                    AppLog.put("tts朗读出错: 段落长度=${text?.length ?: 0}")
                 }
             }
         }.onFailure {

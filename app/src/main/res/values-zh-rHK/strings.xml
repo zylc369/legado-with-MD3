@@ -146,6 +146,7 @@
     <string name="read_aloud_s">點擊打開閲讀介面</string>
     <string name="back_to_speaking_position">回到朗讀位置</string>
     <string name="read_aloud_from_here">從此處朗讀</string>
+    <string name="read_aloud_start_pagination_timeout">朗讀啟動失敗：章節排版未完成，請稍後重試</string>
     <string name="audio_play">播放</string>
     <string name="audio_play_t">正在播放</string>
     <string name="audio_play_s">點擊打開播放介面</string>

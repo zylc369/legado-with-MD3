@@ -519,7 +519,7 @@ internal fun Preferences.toOtherSettings(): OtherSettings {
         sourceEditMaxLine = rawSourceEditMaxLine.takeIf { it >= 10 } ?: Int.MAX_VALUE,
         webPort = compatDsInt(PreferKey.webPort) ?: 1122,
         processText = compatDsBoolean(PreferKey.processText) ?: true,
-        recordLog = compatDsBoolean(PreferKey.recordLog) ?: false,
+        recordLog = compatDsBoolean(PreferKey.recordLog) ?: true,
         recordHeapDump = compatDsBoolean(PreferKey.recordHeapDump) ?: false,
         audioPlayUseWakeLock = compatDsBoolean(PreferKey.audioPlayWakeLock) ?: false,
         importKeepName = compatDsBoolean(PreferKey.importKeepName) ?: false,
