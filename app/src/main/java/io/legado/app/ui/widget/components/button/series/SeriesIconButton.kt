@@ -77,6 +77,8 @@ internal fun SeriesButton(
     style: SeriesIconButtonStyle = SeriesIconButtonStyle.Plain,
     contentColor: Color = LegadoTheme.colorScheme.onSurfaceVariant,
     containerColor: Color? = null,
+    /** 只降低容器不透明度，内容色保持原样——用于悬浮按钮压正文时仍保证文字可读。 */
+    containerAlpha: Float = 1f,
     selectedContainerColor: Color = LegadoTheme.colorScheme.primaryContainer,
     selectedContentColor: Color = LegadoTheme.colorScheme.onPrimaryContainer,
     selectedBorderColor: Color? = null,
@@ -125,7 +127,7 @@ internal fun SeriesButton(
             .then(modifier)
             .then(if (size != null) Modifier.size(size) else Modifier)
             .then(if (clipToShape) Modifier.clip(shape) else Modifier)
-            .background(containerColor, shape)
+            .background(containerColor.copy(alpha = containerColor.alpha * containerAlpha), shape)
             .then(if (border != null) Modifier.border(border, shape) else Modifier)
             .combinedClickable(
                 interactionSource = interactionSource,

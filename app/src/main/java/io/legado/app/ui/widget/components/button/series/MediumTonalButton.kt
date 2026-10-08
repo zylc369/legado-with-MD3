@@ -16,7 +16,9 @@ fun MediumTonalButton(
     selected: Boolean = false,
     icon: ImageVector? = null,
     text: String? = null,
-    contentDescription: String? = null
+    contentDescription: String? = null,
+    /** 仅容器背景半透明（内容保持清晰），用于悬浮按钮少遮挡正文。 */
+    containerAlpha: Float = 1f,
 ) {
     SeriesButton(
         onClick = onClick,
@@ -26,7 +28,8 @@ fun MediumTonalButton(
         onLongClick = onLongClick,
         enforceMinimumInteractiveSize = false,
         size = if (text == null) MediumSeriesIconButtonSize else null,
-        style = SeriesIconButtonStyle.Tonal
+        style = SeriesIconButtonStyle.Tonal,
+        containerAlpha = containerAlpha,
     ) { contentColor ->
         SeriesButtonContent(
             icon = icon,

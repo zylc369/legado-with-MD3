@@ -39,11 +39,11 @@ fun ReadBookFloatingActionBar(
     onIntent: (ReadBookIntent) -> Unit,
 ) {
     val anchorVisible = state.readingAnchorAvailable &&
-        !state.menuVisible && !state.isShowingSearchResult
+            !state.menuVisible && !state.isShowingSearchResult
     val reminder = state.activeReminder?.takeIf { !state.menuVisible }
     val readAloudDetached = state.isReadAloudRunning && !state.readAloudFollow &&
-        state.readAloudDetachReminderEnabled &&
-        !state.menuVisible && !state.isShowingSearchResult
+            state.readAloudDetachReminderEnabled &&
+            !state.menuVisible && !state.isShowingSearchResult
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = anchorVisible || reminder != null || readAloudDetached,
@@ -71,7 +71,9 @@ fun ReadBookFloatingActionBar(
     }
 }
 
-/** 朗读位置脱离当前显示页时：跳回朗读位置，或从当前页重新朗读。 */
+const val DEFAULT_CONTAINER_ALPHA = 0.7f
+
+/** 朗读位置脱离当前显示页时：跳回朗读位置，或从当前页重新朗读。半透明以免遮挡正文。 */
 @Composable
 private fun ReadAloudDetachedCapsule(onIntent: (ReadBookIntent) -> Unit) {
     Row(
@@ -79,12 +81,14 @@ private fun ReadAloudDetachedCapsule(onIntent: (ReadBookIntent) -> Unit) {
     ) {
         MediumTonalButton(
             onClick = { onIntent(ReadBookIntent.BackToSpeakingPosition) },
+            containerAlpha = DEFAULT_CONTAINER_ALPHA,
             icon = Icons.AutoMirrored.Filled.VolumeUp,
             text = stringResource(R.string.back_to_speaking_position),
             contentDescription = stringResource(R.string.back_to_speaking_position),
         )
         MediumTonalButton(
             onClick = { onIntent(ReadBookIntent.ReadAloudFromHere) },
+            containerAlpha = DEFAULT_CONTAINER_ALPHA,
             icon = Icons.Default.PlayArrow,
             text = stringResource(R.string.read_aloud_from_here),
             contentDescription = stringResource(R.string.read_aloud_from_here),
