@@ -76,6 +76,7 @@
         <item>全書頁數</item>
         <item>全書頁數及進度</item>
         <item>自訂</item>
+        <item>書名+標題</item>
     </string-array>
 
     <string-array name="text_font_weight">

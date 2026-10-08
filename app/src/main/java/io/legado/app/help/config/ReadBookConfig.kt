@@ -612,7 +612,7 @@ object ReadBookConfig {
         val tipHeaderLeft: Int = ReadTipType.tipTime,
         val tipHeaderMiddle: Int = ReadTipType.tipNone,
         val tipHeaderRight: Int = ReadTipType.tipBattery,
-        val tipFooterLeft: Int = ReadTipType.tipChapterTitle,
+        val tipFooterLeft: Int = ReadTipType.tipBookNameAndChapterTitle,
         val tipFooterMiddle: Int = ReadTipType.tipNone,
         val tipFooterRight: Int = ReadTipType.tipPageAndTotal,
         val customTipHeaderLeft: String = "",

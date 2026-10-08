@@ -204,6 +204,7 @@
 		<item>Whole-book pages</item>
 		<item>Whole-book pages and progress</item>
 		<item>Custom</item>
+		<item>Book name and title</item>
 	</string-array>
 
 	<string-array name="text_font_weight">

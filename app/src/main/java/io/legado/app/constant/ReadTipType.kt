@@ -33,4 +33,6 @@ object ReadTipType {
     const val tipCustom = 18
     const val tipWholeBookPage = 19
     const val tipWholeBookPageAndProgress = 20
+    /** 书名在上、章节标题在下，两行同一字号（页脚左槽默认值）。 */
+    const val tipBookNameAndChapterTitle = 21
 }

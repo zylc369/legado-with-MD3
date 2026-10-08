@@ -230,6 +230,11 @@ data class ReaderPageTip(
     val alignment: ReaderTipAlignment,
     val visual: ReaderTipVisual = ReaderTipVisual.TEXT,
     val batteryPercent: Int = 0,
+    /**
+     * 可选的第二行文字，画在 [text] **上方**（页脚贴底时向上叠、页眉贴顶时向下叠）。
+     * 目前只有「书名+章节标题」tip 用：[text] 是章节标题、本行是书名。空串即单行。
+     */
+    val overline: String = "",
 )
 
 data class ReaderTipRow(
@@ -248,7 +253,10 @@ data class ReaderTipRow(
     /** 根层安全区内缩：分隔线只画在内缩后的宽度里（旧 `vwRoot` 的刘海 padding）。 */
     val insetLeftPx: Float = 0f,
     val insetRightPx: Float = 0f,
-)
+) {
+    /** 行数：任一槽位是多行 tip 就按两行预留高度/定位分隔线。 */
+    val lineCount: Int get() = if (tips.any { it.overline.isNotEmpty() }) 2 else 1
+}
 
 data class ReaderPageDecoration(
     val header: ReaderTipRow? = null,

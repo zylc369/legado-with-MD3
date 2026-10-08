@@ -10,7 +10,8 @@ object ReaderTipRowLayout {
         fontBottomPx: Float,
         paddingBottomPx: Float,
         dividerExtentPx: Float = 0f,
-    ): Float = paddingTopPx + lineHeight(fontTopPx, fontBottomPx) +
+        lineCount: Int = 1,
+    ): Float = paddingTopPx + lineHeight(fontTopPx, fontBottomPx) * lineCount.coerceAtLeast(1) +
         paddingBottomPx + dividerExtentPx
 
     fun headerBaseline(paddingTopPx: Float, fontTopPx: Float): Float =

@@ -26,6 +26,20 @@ class ReaderTipValueFormatterTest {
         assertEquals("42/100  24.0%", ReaderTipValueFormatter.format(ReaderTipValueType.WHOLE_BOOK_PAGE_AND_PROGRESS, context))
     }
 
+    /** 书名+标题：正文行是章节标题，上标行是书名；其余类型上标行为空。 */
+    @Test
+    fun formatsBookNameOverChapterTitle() {
+        assertEquals(
+            "第三章",
+            ReaderTipValueFormatter.format(ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE, context),
+        )
+        assertEquals(
+            "书名",
+            ReaderTipValueFormatter.overline(ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE, context),
+        )
+        assertEquals("", ReaderTipValueFormatter.overline(ReaderTipValueType.CHAPTER_TITLE, context))
+    }
+
     @Test
     fun resolvesEveryCustomPlaceholder() {
         val template = "{BookName}|{ChapterTitle}|{Time}|{BatteryPercent}|{ChapterIndex}/{ChapterSize}|" +

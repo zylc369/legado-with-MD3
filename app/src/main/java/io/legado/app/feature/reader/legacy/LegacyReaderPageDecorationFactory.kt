@@ -55,6 +55,11 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
             paddingTopPx = ReadBookConfig.headerPaddingTop.dpToPx().toFloat(),
             paddingBottomPx = ReadBookConfig.headerPaddingBottom.dpToPx().toFloat(),
             dividerVisible = ReadBookConfig.showHeaderLine,
+            lineCount = tipLineCount(
+                ReadBookConfig.tipHeaderLeft,
+                ReadBookConfig.tipHeaderMiddle,
+                ReadBookConfig.tipHeaderRight,
+            ),
         )
     } else 0f
 
@@ -72,6 +77,11 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
             paddingTopPx = ReadBookConfig.footerPaddingTop.dpToPx().toFloat(),
             paddingBottomPx = ReadBookConfig.footerPaddingBottom.dpToPx().toFloat(),
             dividerVisible = ReadBookConfig.showFooterLine,
+            lineCount = tipLineCount(
+                ReadBookConfig.tipFooterLeft,
+                ReadBookConfig.tipFooterMiddle,
+                ReadBookConfig.tipFooterRight,
+            ),
         )
     } else 0f
 
@@ -82,6 +92,7 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
         paddingTopPx: Float,
         paddingBottomPx: Float,
         dividerVisible: Boolean,
+        lineCount: Int = 1,
     ): Float {
         val metrics = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             textSize = fontSizePx
@@ -95,8 +106,13 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
             fontBottomPx = metrics.descent,
             paddingBottomPx = paddingBottomPx,
             dividerExtentPx = if (dividerVisible) DIVIDER_THICKNESS_DP.dpToPx() else 0f,
+            lineCount = lineCount,
         )
     }
+
+    /** 三槽里任一槽是多行 tip 时整条按两行预留，避免正文压到上/下第二行。 */
+    private fun tipLineCount(vararg types: Int): Int =
+        if (types.any { it == ReadTipType.tipBookNameAndChapterTitle }) 2 else 1
 
     private const val DIVIDER_THICKNESS_DP = 0.5f
 
@@ -242,7 +258,9 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
         return configured.mapIndexedNotNull { index, config ->
             if (!seen.add(config)) return@mapIndexedNotNull null
             tip(config, context, alignments[index])
-        }.filter { it.text.isNotEmpty() || it.visual != ReaderTipVisual.TEXT }
+        }.filter {
+            it.text.isNotEmpty() || it.overline.isNotEmpty() || it.visual != ReaderTipVisual.TEXT
+        }
     }
 
     private fun tip(
@@ -275,6 +293,7 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
             alignment = alignment,
             visual = visual,
             batteryPercent = context.batteryPercent,
+            overline = ReaderTipValueFormatter.overline(type(config.first), context),
         )
     }
 
@@ -303,6 +322,7 @@ object LegacyReaderPageDecorationFactory : KoinComponent {
         ReadTipType.tipCustom -> ReaderTipValueType.CUSTOM
         ReadTipType.tipWholeBookPage -> ReaderTipValueType.WHOLE_BOOK_PAGE
         ReadTipType.tipWholeBookPageAndProgress -> ReaderTipValueType.WHOLE_BOOK_PAGE_AND_PROGRESS
+        ReadTipType.tipBookNameAndChapterTitle -> ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE
         else -> ReaderTipValueType.NONE
     }
 

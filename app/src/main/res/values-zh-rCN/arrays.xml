@@ -107,6 +107,7 @@
         <item>全文页数</item>
         <item>全文页数及进度</item>
         <item>自定义</item>
+        <item>书名+标题</item>
     </string-array>
 
     <string-array name="text_font_weight">

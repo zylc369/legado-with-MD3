@@ -15,6 +15,7 @@ enum class ReaderTipValueType {
     CUSTOM,
     WHOLE_BOOK_PAGE,
     WHOLE_BOOK_PAGE_AND_PROGRESS,
+    BOOK_NAME_AND_CHAPTER_TITLE,
 }
 
 data class ReaderTipValueContext(
@@ -56,8 +57,19 @@ object ReaderTipValueFormatter {
             ReaderTipValueType.CUSTOM -> resolveCustom(customTemplate, context)
             ReaderTipValueType.WHOLE_BOOK_PAGE -> wholeBookPage()
             ReaderTipValueType.WHOLE_BOOK_PAGE_AND_PROGRESS -> "${wholeBookPage()}  $readProgress"
+            ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE -> chapterTitle
         }
     }
+
+    /**
+     * 双行 tip 的第一行（在 [format] 返回的文字**上方**）。目前只有
+     * [ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE] 有上标行；其余返回空串即单行。
+     */
+    fun overline(type: ReaderTipValueType, context: ReaderTipValueContext): String =
+        when (type) {
+            ReaderTipValueType.BOOK_NAME_AND_CHAPTER_TITLE -> context.bookName
+            else -> ""
+        }
 
     /**
      * 整书页数文案。生产路径由宿主用 `whole_book_page_*` 字符串本地化后传入（含 `全文 - / -`

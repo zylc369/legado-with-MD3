@@ -2950,11 +2950,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPageDecoration(
             paint,
             // 旧版页眉是 includeFontPadding=false 的 TextView：基线 = −ascent（不含 leading）。
             ReaderTipRowLayout.headerBaseline(row.paddingTopPx, paint.fontMetrics.ascent),
+            stackUpward = false,
         )
         row.dividerColorArgb?.let {
             val metrics = paint.fontMetrics
             val dividerY = ReaderTipRowLayout.extent(
                 row.paddingTopPx, metrics.ascent, metrics.descent, row.paddingBottomPx,
+                lineCount = row.lineCount,
             )
             drawReaderTipDivider(row, dividerY, it)
         }
@@ -2968,11 +2970,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPageDecoration(
             ReaderTipRowLayout.footerBaseline(
                 size.height, row.paddingBottomPx, paint.fontMetrics.descent,
             ),
+            stackUpward = true,
         )
         row.dividerColorArgb?.let {
             val metrics = paint.fontMetrics
             val dividerY = size.height - ReaderTipRowLayout.extent(
                 row.paddingTopPx, metrics.ascent, metrics.descent, row.paddingBottomPx,
+                lineCount = row.lineCount,
             )
             drawReaderTipDivider(row, dividerY, it)
         }
@@ -3163,6 +3167,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTipRow(
     row: ReaderTipRow,
     paint: Paint,
     baseline: Float,
+    stackUpward: Boolean,
 ) {
     val leftEdge = row.paddingLeftPx
     val rightEdge = size.width - row.paddingRightPx
@@ -3170,8 +3175,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTipRow(
     val centerTip = row.tips.firstOrNull { it.alignment == ReaderTipAlignment.CENTER }
     val endTip = row.tips.firstOrNull { it.alignment == ReaderTipAlignment.END }
     fun tipWidth(tip: ReaderPageTip): Float =
-        if (tip.visual == ReaderTipVisual.TEXT) paint.measureText(tip.text)
-        else visualTipWidthPx(tip, paint)
+        if (tip.visual == ReaderTipVisual.TEXT) {
+            maxOf(paint.measureText(tip.text), paint.measureText(tip.overline))
+        } else visualTipWidthPx(tip, paint)
     // 对照旧 `view_book_page.xml` 的三槽约束：
     // - 左槽 `layout_width=0dp` + `constraintHorizontal_weight=1`，右边界是 `barrier`
     //   （`barrierDirection=start`、`barrierAllowsGoneWidgets=false`）= 可见的中/右槽起始边的最小值，
@@ -3182,14 +3188,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTipRow(
         centerTip?.let { size.width / 2f - tipWidth(it) / 2f },
         endTip?.let { rightEdge - tipWidth(it) },
     ).minOrNull()
+    val lineSpacing = paint.fontMetrics.descent - paint.fontMetrics.ascent
     row.tips.forEach { tip ->
         if (tip.visual == ReaderTipVisual.TEXT) {
             val available = when (tip.alignment) {
                 ReaderTipAlignment.START -> (barrierStart ?: rightEdge) - leftEdge
                 else -> rightEdge - leftEdge
             }.coerceAtLeast(0f)
-            val text = ellipsizeTipText(tip.text, paint, available)
-            if (text.isEmpty()) return@forEach
             val x = when (tip.alignment) {
                 ReaderTipAlignment.START -> {
                     paint.textAlign = Paint.Align.LEFT; leftEdge
@@ -3199,7 +3204,34 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTipRow(
                     paint.textAlign = Paint.Align.RIGHT; rightEdge
                 }
             }
-            canvas.drawText(text, x, baseline, paint)
+            if (tip.overline.isEmpty()) {
+                val text = ellipsizeTipText(tip.text, paint, available)
+                if (text.isNotEmpty()) canvas.drawText(text, x, baseline, paint)
+            } else if (stackUpward) {
+                // 页脚贴底：正文行落在 baseline，书名行向上叠；正文为空时书名行顶到 baseline 对齐其他槽。
+                val text = ellipsizeTipText(tip.text, paint, available)
+                val overline = ellipsizeTipText(tip.overline, paint, available)
+                when {
+                    text.isNotEmpty() -> {
+                        canvas.drawText(text, x, baseline, paint)
+                        if (overline.isNotEmpty()) {
+                            canvas.drawText(overline, x, baseline - lineSpacing, paint)
+                        }
+                    }
+                    overline.isNotEmpty() -> canvas.drawText(overline, x, baseline, paint)
+                }
+            } else {
+                // 页眉贴顶：书名行落在 baseline，正文行向下叠；书名行为空时正文行顶到 baseline。
+                val overline = ellipsizeTipText(tip.overline, paint, available)
+                val text = ellipsizeTipText(tip.text, paint, available)
+                when {
+                    overline.isNotEmpty() -> {
+                        canvas.drawText(overline, x, baseline, paint)
+                        if (text.isNotEmpty()) canvas.drawText(text, x, baseline + lineSpacing, paint)
+                    }
+                    text.isNotEmpty() -> canvas.drawText(text, x, baseline, paint)
+                }
+            }
         } else {
             drawVisualTip(canvas, row, tip, paint, baseline)
         }

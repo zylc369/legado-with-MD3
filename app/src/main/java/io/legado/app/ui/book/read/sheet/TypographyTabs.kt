@@ -1198,7 +1198,7 @@ private val tipTypeValues = with(ReadTipType) {
         tipTime, tipBattery, tipBatteryClassic, tipBatteryInside, tipBatteryIcon,
         tipBatteryPercentage, tipPage, tipTotalProgress, tipTotalProgress1, tipPageAndTotal,
         tipTimeBattery, tipTimeBatteryClassic, tipTimeBatteryPercentage, tipWholeBookPage,
-        tipWholeBookPageAndProgress, tipCustom
+        tipWholeBookPageAndProgress, tipCustom, tipBookNameAndChapterTitle
     )
 }
 
