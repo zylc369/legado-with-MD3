@@ -68,35 +68,43 @@ sealed interface ReadBookMenuRoute {
     data object PaddingConfig : ReadBookMenuRoute
 }
 
+/**
+ * 阅读排版快照。字段默认值一律保持"未设置"占位（0/空/false）——读者路径的真实值来自唯一来源
+ * `ReadBookConfig`，由 `ReadBookViewModel.buildStyleConfig()` 在 VM `init` 同步播种后才被观察；
+ * 这里若再抄一份真实值，就是把同一份数据散落两处、迭代时必然漂移。
+ *
+ * 注意：非读者宿主（如朗读播放器 `asReadBookUiState()`）构造 [ReadBookUiState] 时**不播种**本类型，
+ * 这些字段会保持占位值，那类宿主不得读取本快照的任何字段。
+ */
 @Stable
 data class ReadBookStyleConfig(
     val styleSelect: Int = 0,
-    val styleName: String = "文字",
-    val bgAlpha: Float = 1f,
+    val styleName: String = "",
+    val bgAlpha: Float = 0f,
     // Day mode
     val bgType: Int = 0,
-    val bgStr: String = "#EEEEEE",
-    val darkStatusIcon: Boolean = true,
+    val bgStr: String = "",
+    val darkStatusIcon: Boolean = false,
     // Night mode
     val bgTypeNight: Int = 0,
-    val bgStrNight: String = "#000000",
+    val bgStrNight: String = "",
     val darkStatusIconNight: Boolean = false,
     // E-Ink mode
     val bgTypeEInk: Int = 0,
-    val bgStrEInk: String = "#FFFFFF",
-    val darkStatusIconEInk: Boolean = true,
+    val bgStrEInk: String = "",
+    val darkStatusIconEInk: Boolean = false,
     // Text
-    val textSize: Int = 24,
-    val textColor: String = "#3E3D3B",
-    val textColorNight: String = "#CCCCCC",
-    val textColorEInk: String = "#000000",
+    val textSize: Int = 0,
+    val textColor: String = "",
+    val textColorNight: String = "",
+    val textColorEInk: String = "",
     val textFont: String = "",
     val titleFont: String = "",
     // Page anim
     val pageAnim: Int = 0,
-    val pageAnimEInk: Int = 4,
+    val pageAnimEInk: Int = 0,
     // 翻页速度挡位 0:极速 1:快速 2:适中(默认) 3:优雅，取值与时长见 ReaderPageTurnSpeed
-    val pageAnimSpeed: Int = 2,
+    val pageAnimSpeed: Int = 0,
     // Layout
     val shareLayout: Boolean = false,
     // 排版自带的阅读菜单配色，作为 DataStore 里 readMenu*Color 为 0（未自定义）时的回退
@@ -105,7 +113,7 @@ data class ReadBookStyleConfig(
     val menuAccentColorDay: Int = 0,
     val menuAccentColorNight: Int = 0,
     // Config list for style selector
-    val configCount: Int = 1,
+    val configCount: Int = 0,
     val styleItems: ImmutableList<ReadStyleItem> = persistentListOf(),
 ) {
     // Computed properties for background mode
@@ -113,14 +121,19 @@ data class ReadBookStyleConfig(
     val isNightBgImage: Boolean get() = bgTypeNight != 0
 }
 
+/**
+ * 排版弹层快照。默认值一律保持"未设置"占位（0/空/false）——真实值来自唯一来源 `ReadBookConfig`，
+ * 由 `ReadBookViewModel.buildSheetConfig()` 在 VM `init` 同步播种后才被观察；这里不再抄一份真实值。
+ * 非读者宿主构造时不播种本类型，相应字段保持占位值、不得读取。
+ */
 @Stable
 data class ReadSheetConfigUiState(
     /** 标题字号 <8 时按「正文字号 + 偏移」解释，故正文字号也要进弹层快照。 */
-    val textSize: Int = 24,
+    val textSize: Int = 0,
     val letterSpacing: Float = 0f,
-    val lineSpacing: Int = 11,
+    val lineSpacing: Int = 0,
     val paragraphSpacing: Int = 0,
-    val paragraphIndentCount: Int = 2,
+    val paragraphIndentCount: Int = 0,
     val textItalic: Boolean = false,
     val textBold: Int = 0,
     val chineseConverterType: Int = 0,
@@ -131,7 +144,7 @@ data class ReadSheetConfigUiState(
     val titleSegType: Int = 0,
     val titleSegDistance: Int = 0,
     val titleSegFlag: String = "",
-    val titleSegScaling: Float = 1f,
+    val titleSegScaling: Float = 0f,
     val titleLineSpacingExtra: Int = 0,
     val titleLineSpacingSub: Int = 0,
     val titleSize: Int = 0,
@@ -169,9 +182,9 @@ data class ReadSheetConfigUiState(
     // 页眉页脚字体
     val headerFont: String = "",
     val footerFont: String = "",
-    val headerFontSize: Int = 12,
-    val footerFontSize: Int = 12,
-    val applyHeaderStyle: Boolean = true,
+    val headerFontSize: Int = 0,
+    val footerFontSize: Int = 0,
+    val applyHeaderStyle: Boolean = false,
     /** -1 表示"跟随主题分割线"，0 表示"跟随正文颜色"。 */
     val tipDividerColor: Int = 0,
     val headerMode: Int = 0,
@@ -195,8 +208,8 @@ data class ReadSheetConfigUiState(
     val tipHeaderColorNight: Int = 0,
     val tipFooterColor: Int = 0,
     val tipFooterColorNight: Int = 0,
-    val textFullJustify: Boolean = true,
-    val textBottomJustify: Boolean = true,
+    val textFullJustify: Boolean = false,
+    val textBottomJustify: Boolean = false,
     val configNames: ImmutableList<String> = persistentListOf(),
 )
 
