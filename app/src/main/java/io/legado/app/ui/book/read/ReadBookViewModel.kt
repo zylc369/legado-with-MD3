@@ -1799,9 +1799,9 @@ class ReadBookViewModel(
                         readAloudTtsTimer = session.timerMinutes,
                     )
                 }
+                // 只有真正停止（Idle）才清朗读高亮；暂停保留高亮在暂停位置
                 if (previousStatus != null && previousStatus != status &&
-                    (status == ReadAloudSessionStatus.Idle ||
-                        status == ReadAloudSessionStatus.Paused)
+                    status == ReadAloudSessionStatus.Idle
                 ) {
                     _readAloudProgress.value = null
                     _effects.tryEmit(ReadBookEffect.UpAloudState)
