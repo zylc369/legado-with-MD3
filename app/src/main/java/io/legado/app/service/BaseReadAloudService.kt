@@ -700,6 +700,8 @@ abstract class BaseReadAloudService : BaseService(),
         }
         updateReadAloudProgressSnapshot(progress)
         postEvent(EventBus.TTS_PROGRESS, progress)
+        // 通用同步：朗读推进后若可见页正好是朗读页（脱离后被朗读追上），恢复跟随以隐藏脱离悬浮条
+        ReadBook.syncReadAloudFollowWithVisiblePage()
     }
 
     protected fun updateReadAloudProgressSnapshot(progress: Int) {
@@ -790,7 +792,9 @@ abstract class BaseReadAloudService : BaseService(),
                 readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
                 if (readAloudNumber < it.pageStart(pageIndex)) {
                     pageIndex--
-                    withSpeechNavigation { ReadBook.moveToPrevPage() }
+                    if (sessionStore.state.value.followReadAloudPosition) {
+                        withSpeechNavigation { ReadBook.moveToPrevPage() }
+                    }
                 }
             }
             upTtsProgress(readAloudNumber + 1)
@@ -823,7 +827,9 @@ abstract class BaseReadAloudService : BaseService(),
                     && readAloudNumber >= it.pageStart(pageIndex + 1)
                 ) {
                     pageIndex++
-                    withSpeechNavigation { ReadBook.moveToNextPage() }
+                    if (sessionStore.state.value.followReadAloudPosition) {
+                        withSpeechNavigation { ReadBook.moveToNextPage() }
+                    }
                 }
             }
             upTtsProgress(readAloudNumber + 1)
@@ -842,15 +848,16 @@ abstract class BaseReadAloudService : BaseService(),
         readAloudNumber = cue.chapterStart
         publishPlaybackInfo(cursor)
         readerReadAloudChapter?.let { chapter ->
+            val follow = sessionStore.state.value.followReadAloudPosition
             val targetPosition = cue.chapterStart + cursor.offset
             val targetPage = chapter.pageIndexAt(targetPosition)
             while (pageIndex < targetPage) {
                 pageIndex++
-                withSpeechNavigation { ReadBook.moveToNextPage() }
+                if (follow) withSpeechNavigation { ReadBook.moveToNextPage() }
             }
             while (pageIndex > targetPage) {
                 pageIndex--
-                withSpeechNavigation { ReadBook.moveToPrevPage() }
+                if (follow) withSpeechNavigation { ReadBook.moveToPrevPage() }
             }
             if (cue.isChapterTitle) {
                 updateReadAloudProgressSnapshot(0)

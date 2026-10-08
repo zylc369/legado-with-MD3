@@ -247,7 +247,24 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      * 悬浮条随之消失；同时重绘朗读高亮（翻页时旧页高亮已被移除）。朗读服务自身驱动的页面移动不参与。
      */
     private fun restoreReadAloudFollowIfBackOnPosition() {
-        if (!BaseReadAloudService.isRun || BaseReadAloudService.speechDrivingNavigation) return
+        if (BaseReadAloudService.speechDrivingNavigation) return
+        restoreReadAloudFollowIfOnVisibleReadAloudPage()
+    }
+
+    /**
+     * 朗读页推进后调用（含朗读自身驱动的导航）：脱离状态下，一旦朗读读到用户当前可见页（同章同页）
+     * 就恢复跟随，页脚的「回到朗读位置 / 从此处朗读」随之隐藏。
+     *
+     * 与 [restoreReadAloudFollowIfBackOnPosition] 的唯一区别是不屏蔽朗读驱动导航——朗读自然读到
+     * 用户所在页也应视为重新同步，而不是只有用户手动翻回来才算。
+     */
+    fun syncReadAloudFollowWithVisiblePage() {
+        if (readAloudSessionStore.state.value.followReadAloudPosition) return
+        restoreReadAloudFollowIfOnVisibleReadAloudPage()
+    }
+
+    private fun restoreReadAloudFollowIfOnVisibleReadAloudPage() {
+        if (!BaseReadAloudService.isRun) return
         val speakingChapterIndex = BaseReadAloudService.currentChapterIndex
         if (speakingChapterIndex < 0 || speakingChapterIndex != durChapterIndex) return
         val speakingPage = readerPagination()?.pageIndex(
