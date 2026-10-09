@@ -79,7 +79,6 @@ import io.legado.app.feature.reader.core.model.readerBackgroundAlpha
 import io.legado.app.feature.reader.core.transition.ReaderPageTurnSpeed
 import io.legado.app.feature.reader.core.transition.ReaderTransitionMode
 import io.legado.app.feature.reader.platform.ReaderPerfTrace
-import io.legado.app.help.IntentHelp
 import io.legado.app.model.ReadBook
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.translation.TranslationChapterStatus
@@ -99,7 +98,6 @@ import io.legado.app.ui.theme.LocalAppUiConfiguration
 import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.StartActivityContract
 import io.legado.app.utils.takePersistablePermissionSafely
-import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
@@ -155,9 +153,7 @@ fun ReadBookRouteScreen(
     isTopRoute: Boolean = true,
     onEffectsReady: () -> Unit = {},
     onOpenSearch: (word: String?, bookUrl: String, autoFocus: Boolean) -> Unit = { _, _, _ -> },
-    onOpenVoiceCasting: (bookUrl: String) -> Unit = {},
-    onOpenTtsEnginesAndVoices: () -> Unit = {},
-    onOpenTtsCache: () -> Unit = {},
+    onOpenReadAloudSettings: () -> Unit = {},
     onNavigateBack: () -> Boolean = { true },
 ) {
     // 归因定界：与末尾 compose.screen.end 成对。若首帧 `Compose:recompose` 里出现
@@ -241,11 +237,6 @@ fun ReadBookRouteScreen(
             state.menuState.canNavigateBack -> viewModel.onIntent(ReadBookIntent.ReadMenuBack)
             else -> requestClose()
         }
-    }
-
-    // 从朗读配置子页（引擎与音色/缓存/配音）返回、阅读界面重新成为栈顶时，恢复「朗读设置」弹层。
-    LaunchedEffect(isTopRoute) {
-        if (isTopRoute) viewModel.onIntent(ReadBookIntent.ReaderBecameTop)
     }
 
     DisposableEffect(controller) {
@@ -457,11 +448,7 @@ fun ReadBookRouteScreen(
                             is ReadBookEffect.OpenSearch -> {
                                 onOpenSearch(effect.word, effect.bookUrl, effect.autoFocus)
                             }
-                            is ReadBookEffect.OpenBookVoiceCasting -> {
-                                onOpenVoiceCasting(effect.bookUrl)
-                            }
-                            ReadBookEffect.OpenTtsEnginesAndVoices -> onOpenTtsEnginesAndVoices()
-                            ReadBookEffect.OpenTtsCache -> onOpenTtsCache()
+                            ReadBookEffect.OpenReadAloudSettings -> onOpenReadAloudSettings()
                             is ReadBookEffect.MenuSettingReplace -> {
                                 replaceLauncher.launch(
                                     ReplaceRuleActivity.startIntent(
@@ -523,12 +510,6 @@ fun ReadBookRouteScreen(
                             is ReadBookEffect.OpenTitleBarCustomIconPicker -> {
                                 pendingTitleBarCustomIconId = effect.id
                                 titleBarCustomIconPicker.launch("image/*")
-                            }
-                            is ReadBookEffect.OpenSystemTtsSettings -> {
-                                IntentHelp.openTTSSetting()
-                            }
-                            is ReadBookEffect.TtsCacheCleared -> {
-                                context.toastOnUi(effect.message)
                             }
                             is ReadBookEffect.OpenHighlightRuleImportPicker -> {
                                 importHighlightRulePicker.launch(

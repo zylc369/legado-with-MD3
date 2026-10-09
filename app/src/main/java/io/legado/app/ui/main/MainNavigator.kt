@@ -3,6 +3,7 @@ package io.legado.app.ui.main
 import android.app.Activity
 import android.content.Intent
 import androidx.navigation3.runtime.NavKey
+import io.legado.app.constant.AppLog
 import io.legado.app.feature.reader.platform.ReaderPerfTrace
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.rss.article.MainRouteRssSort
@@ -219,6 +220,7 @@ object MainNavigator {
             is MainRouteBookVoiceCasting,
             is MainRouteCloudTtsEngines,
             MainRouteTtsCache,
+            is MainRouteReadAloudSettings,
             is MainRouteBookKnowledgeList,
             is MainRouteBookKnowledgeDetail,
             is MainRouteBookEventList,
@@ -231,6 +233,7 @@ object MainNavigator {
                     currentRoute is MainRouteBookVoiceCasting ||
                     currentRoute is MainRouteCloudTtsEngines ||
                     currentRoute == MainRouteTtsCache ||
+                    currentRoute is MainRouteReadAloudSettings ||
                     currentRoute is MainRouteBookKnowledgeList ||
                     currentRoute is MainRouteBookKnowledgeDetail ||
                     currentRoute is MainRouteBookEventList ||
@@ -329,6 +332,16 @@ object MainNavigator {
                     backStack.add(MainRouteHome)
                     backStack.add(route)
                 }
+            }
+
+            // 兜底：`route` 是开放的 NavKey（非 sealed），编译器无法强制穷尽。
+            // 未登记的路由按默认入栈，避免像漏登记的新路由那样被静默丢弃、点了没反应；
+            // 同时打日志，避免"推上去了但语义不对"又被静默掩盖。
+            else -> {
+                AppLog.put(
+                    "MainNavigator: 未登记的路由 ${route::class.qualifiedName}，按默认入栈处理"
+                )
+                backStack.add(route)
             }
         }
         // 同步栈快照：Activity 级叠层（全局朗读胶囊）据此立刻重算显隐，不必等 back stack 回灌

@@ -108,6 +108,7 @@ import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsScreen
 import io.legado.app.ui.book.readaloud.cloudtts.CloudTtsViewModel
 import io.legado.app.ui.book.readaloud.morph.ReadAloudMorphState
 import io.legado.app.ui.book.readaloud.player.rememberPlayerThemeOverride
+import io.legado.app.ui.book.readaloud.settings.ReadAloudSettingsRouteScreen
 import io.legado.app.ui.book.search.SearchIntent
 import io.legado.app.ui.book.search.SearchRouteScreen
 import io.legado.app.ui.book.search.SearchViewModel
@@ -832,14 +833,8 @@ fun MainActivity.mainEntryProvider(
                         )
                     )
                 },
-                onOpenVoiceCasting = { bookUrl ->
-                    onNavigateToRoute(MainRouteBookVoiceCasting(bookUrl))
-                },
-                onOpenTtsEnginesAndVoices = {
-                    onNavigateToRoute(MainRouteCloudTtsEngines(route.bookUrl))
-                },
-                onOpenTtsCache = {
-                    onNavigateToRoute(MainRouteTtsCache)
+                onOpenReadAloudSettings = {
+                    onNavigateToRoute(MainRouteReadAloudSettings(route.bookUrl))
                 },
                 onNavigateBack = {
                     MainNavigator.navigateBack(
@@ -1385,6 +1380,21 @@ fun MainActivity.mainEntryProvider(
         BackHandler { onNavigateBack() }
         TtsCacheRouteScreen(
             onBackClick = { onNavigateBack() },
+        )
+    }
+
+    entry<MainRouteReadAloudSettings>(metadata = modalOverlayEntryMetadata()) { route ->
+        BackHandler { onNavigateBack() }
+        ReadAloudSettingsRouteScreen(
+            bookUrl = route.bookUrl,
+            onBack = { onNavigateBack() },
+            onOpenTtsEnginesAndVoices = { bookUrl ->
+                onNavigateToRoute(MainRouteCloudTtsEngines(bookUrl?.takeIf(String::isNotBlank)))
+            },
+            onOpenTtsCache = { onNavigateToRoute(MainRouteTtsCache) },
+            onOpenBookVoiceCasting = { bookUrl ->
+                onNavigateToRoute(MainRouteBookVoiceCasting(bookUrl))
+            },
         )
     }
 

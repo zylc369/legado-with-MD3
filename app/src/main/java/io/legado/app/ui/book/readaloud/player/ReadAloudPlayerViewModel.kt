@@ -2,6 +2,7 @@ package io.legado.app.ui.book.readaloud.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.legado.app.R
 import io.legado.app.constant.PreferKey
 import io.legado.app.constant.ReadAloudBgMode
 import io.legado.app.domain.gateway.ReadAloudSettingsGateway
@@ -18,6 +19,7 @@ import io.legado.app.ui.widget.components.player.PlayerChapterUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -120,8 +122,7 @@ class ReadAloudPlayerViewModel(
     ) {
         viewModelScope.launch {
             when (option) {
-                ReadAloudConfigOption.DefaultInterface ->
-                    readAloudSettingsGateway.update { it.copy(defaultInterface = value) }
+                ReadAloudConfigOption.DefaultInterface -> coordinator.setDefaultInterface(value)
 
                 ReadAloudConfigOption.ShowCapsule ->
                     readAloudSettingsGateway.update { it.copy(showReadAloudCapsule = selected) }
@@ -153,11 +154,18 @@ class ReadAloudPlayerViewModel(
                     it.copy(systemMediaControlCompatibilityChange = selected)
                 }
 
-                ReadAloudConfigOption.StreamAudio ->
-                    readAloudSettingsGateway.update { it.copy(streamReadAloudAudio = selected) }
+                ReadAloudConfigOption.StreamAudio -> coordinator.setStreamAudio(selected)
 
-                ReadAloudConfigOption.SpeechAnalysisMode ->
-                    readAloudSettingsGateway.update { it.copy(speechAnalysisMode = value) }
+                ReadAloudConfigOption.SpeechAnalysisMode -> {
+                    // 非规则模式需已配置 AI 模型，否则拒绝写入并提示（与经典朗读控制同语义）。
+                    if (!coordinator.applySpeechAnalysisMode(value)) {
+                        effect(
+                            ReadAloudPlayerEffect.ShowToast(
+                                R.string.speech_analysis_ai_model_required
+                            )
+                        )
+                    }
+                }
 
                 ReadAloudConfigOption.SpeechAnalysisReasoningLevel ->
                     readAloudSettingsGateway.update {
@@ -165,7 +173,7 @@ class ReadAloudPlayerViewModel(
                     }
 
                 ReadAloudConfigOption.UseMultiSpeaker ->
-                    readAloudSettingsGateway.update { it.copy(useMultiSpeaker = selected) }
+                    coordinator.setUseMultiSpeaker(selected)
 
                 ReadAloudConfigOption.ContentSplit -> {
                     val (mode, symbols) = ReadAloudContentSplitSetting.decode(value)
@@ -315,7 +323,7 @@ private fun toReadAloudSettingsUiState(
     speechAnalysisReasoningLevel = aloud.speechAnalysisReasoningLevel,
     useMultiSpeaker = aloud.useMultiSpeaker,
     readAloudContentSplitMode = aloud.contentSplitMode,
-    readAloudContentSplitSymbols = aloud.contentSplitSymbols,
+    readAloudContentSplitSymbols = aloud.contentSplitSymbols.toImmutableSet(),
     preDownloadNum = read.preDownloadNum,
     preSynthesisConcurrency = aloud.ttsPreSynthesisConcurrency,
     readAloudParagraphInterval = aloud.ttsParagraphInterval,

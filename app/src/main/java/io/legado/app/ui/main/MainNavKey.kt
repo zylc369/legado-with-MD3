@@ -142,6 +142,10 @@ data class MainRouteReadBook(
     val sharedCoverKey: String? = null,
 ) : MainRoute
 
+/** 「朗读设置」独立页；`bookUrl` 用于「引擎与音色 / 配音」子页回到正确的书上下文。 */
+@Serializable
+data class MainRouteReadAloudSettings(val bookUrl: String? = null) : MainRoute
+
 @Serializable
 data class MainRouteReadManga(
     val bookUrl: String? = null,

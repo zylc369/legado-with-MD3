@@ -5,7 +5,10 @@ import androidx.lifecycle.Observer
 import com.jeremyliao.liveeventbus.LiveEventBus
 import io.legado.app.constant.EventBus
 import io.legado.app.data.repository.BookRepository
+import io.legado.app.data.repository.ReadAloudSettingsRepository
+import io.legado.app.domain.gateway.AiProfileGateway
 import io.legado.app.domain.gateway.ReadAloudSettingsGateway
+import io.legado.app.domain.model.AiTaskType
 import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.domain.model.readaloud.ContentSplitPolicies
 import io.legado.app.domain.model.readaloud.ReadAloudSessionStatus
@@ -19,6 +22,7 @@ import io.legado.app.model.reader.ReaderChapterInput
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.ReadConfigUpdateBus
 import io.legado.app.utils.TTSCacheUtils
+import io.legado.app.utils.postEvent
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -30,11 +34,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /** Compatibility boundary between the Compose player and the legacy reader/service state. */
@@ -43,6 +49,7 @@ class ReadAloudPlayerCoordinator(
     private val sessionStore: ReadAloudSessionStore,
     private val readAloudSettingsGateway: ReadAloudSettingsGateway,
     private val bookRepository: BookRepository,
+    private val aiProfileGateway: AiProfileGateway,
 ) {
     private val refreshRequests = MutableSharedFlow<Unit>(replay = 1)
     private val bookChanges = callbackFlow {
@@ -290,12 +297,70 @@ class ReadAloudPlayerCoordinator(
         readAloudSettingsGateway.update { it.copy(finishCurrentChapterAfterTimer = value) }
     }
 
+    /** 切换默认朗读界面；未知取值回落到经典界面（与经典朗读控制同语义）。 */
+    suspend fun setDefaultInterface(value: String) {
+        readAloudSettingsGateway.update {
+            it.copy(
+                defaultInterface = value.takeIf { candidate ->
+                    candidate in ReadAloudSettingsRepository.AVAILABLE_INTERFACES
+                } ?: ReadAloudSettingsRepository.DEFAULT_INTERFACE_CLASSIC,
+            )
+        }
+    }
+
+    /** 切换音频流式播放；开启时需要刷新媒体通知（与经典朗读控制同语义）。 */
+    suspend fun setStreamAudio(value: Boolean) {
+        readAloudSettingsGateway.update { it.copy(streamReadAloudAudio = value) }
+        if (value) postEvent(EventBus.MEDIA_BUTTON, false)
+    }
+
+    /**
+     * 多角色朗读开关。正在朗读时切换合成管线必须重启朗读服务：先记住页内位置，
+     * 等服务真的回到 Idle 再重放，避免新旧管线叠音。
+     */
+    suspend fun setUseMultiSpeaker(value: Boolean) {
+        val shouldRestart = BaseReadAloudService.isRun
+        val resumePlaying = shouldRestart && !BaseReadAloudService.pause
+        val chapterPosition = sessionStore.state.value.playback.chapterPosition
+        readAloudSettingsGateway.update { it.copy(useMultiSpeaker = value) }
+        if (shouldRestart && ReadBook.readerChapterInputWindow.current != null) {
+            ReadAloud.stop(application)
+            val stopped = withTimeoutOrNull(2_000) {
+                sessionStore.state.first { it.status == ReadAloudSessionStatus.Idle }
+            }
+            if (stopped == null) return
+            ReadAloud.refreshReadAloudClass()
+            ReadAloud.play(
+                context = application,
+                play = resumePlaying,
+                chapterPosition = chapterPosition.coerceAtLeast(0),
+            )
+        }
+    }
+
+    /**
+     * 切换语音分析模式。非「规则」模式要求已配置 AI 模型，否则拒绝写入。
+     *
+     * @return true 表示已应用；false 表示缺少模型，调用方应提示用户。
+     */
+    suspend fun applySpeechAnalysisMode(value: String): Boolean {
+        if (value != SPEECH_ANALYSIS_MODE_RULE) {
+            val configured = aiProfileGateway.getTaskPreset(AiTaskType.ANALYZE_SPEECH)
+                ?: aiProfileGateway.getTaskPreset(AiTaskType.CHAT)
+            if (configured == null) return false
+        }
+        readAloudSettingsGateway.update { it.copy(speechAnalysisMode = value) }
+        return true
+    }
+
     fun seekTo(chapterPosition: Int, chapterLength: Int) {
         val position = chapterPosition.coerceIn(0, chapterLength)
         ReadAloud.play(application, play = true, chapterPosition = position)
     }
 
     private companion object {
+        const val SPEECH_ANALYSIS_MODE_RULE = "rule"
+
         val EVENT_KEYS = listOf(
             EventBus.UPDATE_READ_ACTION_BAR,
             EventBus.SOURCE_CHANGED,

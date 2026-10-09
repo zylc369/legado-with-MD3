@@ -1,12 +1,13 @@
 package io.legado.app.ui.book.readaloud.player
 
 import androidx.compose.runtime.Stable
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentSetOf
 
 /**
  * 朗读设置里可在界面直接修改的选项。
  *
- * 听书播放界面与阅读界面各自有独立的设置宿主（前者用全局朗读设置，后者用阅读器状态），
- * 但设置内容完全一样。这里把「改哪一项」收敛成一份枚举，让两个宿主共用同一份
+ * 听书播放界面与「朗读设置」路由页都直接消费同一份 [ReadAloudSettingsUiState] 与同一个
  * `ReadAloudConfigContent`，避免两套几乎相同的表单各自漂移。
  */
 enum class ReadAloudConfigOption {
@@ -49,7 +50,7 @@ data class ReadAloudSettingsUiState(
     val speechAnalysisReasoningLevel: String = "",
     val useMultiSpeaker: Boolean = true,
     val readAloudContentSplitMode: String = "default",
-    val readAloudContentSplitSymbols: Set<String> = emptySet(),
+    val readAloudContentSplitSymbols: ImmutableSet<String> = persistentSetOf(),
     val preDownloadNum: Int = 10,
     val preSynthesisConcurrency: Int = 3,
     val readAloudParagraphInterval: Int = 0,

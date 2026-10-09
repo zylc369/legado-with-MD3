@@ -10,7 +10,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
@@ -19,7 +18,6 @@ import io.legado.app.core.ui.player.PlayerMorphHost
 import io.legado.app.help.IntentHelp
 import io.legado.app.ui.book.read.sheet.ReadAloudConfigContent
 import io.legado.app.ui.book.read.sheet.ReadAloudNumberConfigSheet
-import io.legado.app.ui.book.read.sheet.asReadBookUiState
 import io.legado.app.ui.book.readaloud.morph.ReadAloudMorphState
 import io.legado.app.ui.book.readaloud.player.ReadAloudConfigOption
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerConfigHostAction
@@ -27,10 +25,9 @@ import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerEffect
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerScreenContent
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerUiState
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerViewModel
-import io.legado.app.ui.book.readaloud.player.applyReadBookConfigIntent
+import io.legado.app.ui.book.readaloud.player.applyReadAloudConfigIntent
 import io.legado.app.ui.book.readaloud.player.rememberPlayerThemeOverride
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
-import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.launch
 
 /** 朗读特有的设置与经典控制；几何、封面和返回手势由共用宿主处理。 */
@@ -48,7 +45,6 @@ fun ReadAloudPlayerMorphHost(
     onOpenTtsCache: () -> Unit,
     onOpenBookVoiceCasting: (bookUrl: String) -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsState by playerViewModel.readAloudSettings.collectAsStateWithLifecycle()
     var configVisible by rememberSaveable { mutableStateOf(false) }
@@ -113,14 +109,10 @@ fun ReadAloudPlayerMorphHost(
     }
     LaunchedEffect(playerViewModel) {
         playerViewModel.effects.collect { effect ->
-            when (effect) {
-                ReadAloudPlayerEffect.ReturnToClassic -> {
-                    collapsePlayer()
-                    currentSwitch(playerViewModel.uiState.value.bookUrl)
-                }
-
-                ReadAloudPlayerEffect.TtsCacheCleared ->
-                    context.toastOnUi(R.string.clear_cache_success)
+            // toast 类反馈由 MainActivity 统一消费，这里只处理导航类 effect。
+            if (effect == ReadAloudPlayerEffect.ReturnToClassic) {
+                collapsePlayer()
+                currentSwitch(playerViewModel.uiState.value.bookUrl)
             }
         }
     }
@@ -151,10 +143,10 @@ fun ReadAloudPlayerMorphHost(
         title = stringResource(R.string.aloud_config),
     ) {
         ReadAloudConfigContent(
-            state = settingsState.asReadBookUiState(),
+            state = settingsState,
             playerState = playerState,
             onIntent = { intent ->
-                playerViewModel.applyReadBookConfigIntent(intent, ::handleHostAction)
+                playerViewModel.applyReadAloudConfigIntent(intent, ::handleHostAction)
             },
             onPlayerIntent = playerViewModel::onIntent,
         )

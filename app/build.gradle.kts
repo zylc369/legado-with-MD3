@@ -170,6 +170,13 @@ android {
     }
 }
 
+// Robolectric 的 Compose 交互测试会往 JVM 级静态/沙箱里留下状态，
+// 同一 JVM 内跨类运行时会污染后续的交互测试（手势/长按不触发）。
+// 每个测试类独立 JVM，保证隔离。
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+}
+
 kotlin {
     jvmToolchain {
         languageVersion.set(JavaLanguageVersion.of(21))

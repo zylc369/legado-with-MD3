@@ -1,5 +1,6 @@
 package io.legado.app.ui.book.readaloud.player
 
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Stable
 import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.ui.widget.components.player.PlayerChapterUi
@@ -89,4 +90,7 @@ sealed interface ReadAloudPlayerIntent {
 sealed interface ReadAloudPlayerEffect {
     data object ReturnToClassic : ReadAloudPlayerEffect
     data object TtsCacheCleared : ReadAloudPlayerEffect
+
+    /** 宿主用 [messageRes] 弹提示（如缺少 AI 模型时拒绝切换分析模式）。 */
+    data class ShowToast(@StringRes val messageRes: Int) : ReadAloudPlayerEffect
 }

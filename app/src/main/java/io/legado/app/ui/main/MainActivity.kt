@@ -79,6 +79,7 @@ import io.legado.app.ui.book.readaloud.ReadAloudShellHost
 import io.legado.app.ui.book.readaloud.morph.CapsuleAnchorKind
 import io.legado.app.ui.book.readaloud.morph.LocalReadAloudMorph
 import io.legado.app.ui.book.readaloud.morph.rememberReadAloudMorphState
+import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerEffect
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerViewModel
 import io.legado.app.ui.main.bookshelf.BookshelfCoverPreloader
 import io.legado.app.ui.theme.LocalAppUiConfiguration
@@ -476,6 +477,23 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
             .collectAsStateWithLifecycle()
         val pageShellShowCapsule = pageShellAloudSettings.showReadAloudCapsule
         val pageShellCapsuleScope = rememberCoroutineScope()
+
+        // 朗读播放 effect 的唯一消费者：toast 类反馈与具体界面无关，统一在这里消费一次，
+        // 避免播放浮层与「朗读设置」路由页各自收集，导致同一 effect 被处理两次。
+        // 导航类 effect（ReturnToClassic）仍由播放浮层自己处理。
+        LaunchedEffect(pageShellPlayerViewModel) {
+            pageShellPlayerViewModel.effects.collect { effect ->
+                when (effect) {
+                    is ReadAloudPlayerEffect.ShowToast ->
+                        this@MainActivity.toastOnUi(effect.messageRes)
+
+                    ReadAloudPlayerEffect.TtsCacheCleared ->
+                        this@MainActivity.toastOnUi(R.string.clear_cache_success)
+
+                    else -> Unit
+                }
+            }
+        }
 
         // 两种播放页共享同窗口形变容器，导航栈保留原页面作为动画背景。
         val initialAudioRoute =
