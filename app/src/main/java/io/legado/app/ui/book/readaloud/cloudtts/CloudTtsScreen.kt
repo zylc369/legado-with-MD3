@@ -426,34 +426,15 @@ private fun VoicePickerSheet(
                         ) {
                             ToggleChip(
                                 label = stringResource(R.string.read_aloud_scope_global),
-                                selected = current.globalTarget,
+                                selected = current.globalSelected,
                                 onToggle = { onIntent(CloudTtsIntent.ToggleVoiceScope(CloudTtsScope.Global)) },
                             )
                             ToggleChip(
                                 label = stringResource(R.string.read_aloud_scope_book),
-                                selected = current.bookTarget,
+                                selected = current.bookSelected,
                                 onToggle = { onIntent(CloudTtsIntent.ToggleVoiceScope(CloudTtsScope.Book)) },
                             )
                         }
-                    }
-                }
-                if (state.hasBookContext && current.bookTarget) {
-                    item {
-                        TinyClickableSettingItem(
-                            title = stringResource(R.string.read_aloud_follow_global),
-                            description = stringResource(R.string.read_aloud_follow_global_summary),
-                            trailingContent = {
-                                if (current.followGlobal) {
-                                    androidx.compose.material3.Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = LegadoTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                            onClick = { onIntent(CloudTtsIntent.ClearBookSelection) },
-                        )
                     }
                 }
                 when {

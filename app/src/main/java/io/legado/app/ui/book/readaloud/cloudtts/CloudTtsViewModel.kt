@@ -127,7 +127,6 @@ class CloudTtsViewModel(
             is CloudTtsIntent.OpenVoicePicker -> openVoicePicker(intent.engineType, intent.engineId)
             is CloudTtsIntent.ToggleVoiceScope -> toggleVoiceScope(intent.scope)
             is CloudTtsIntent.SelectVoice -> selectVoice(intent.speakerId)
-            CloudTtsIntent.ClearBookSelection -> clearBookSelection()
             CloudTtsIntent.RefreshVoiceCatalog -> refreshVoiceCatalog()
             CloudTtsIntent.DismissVoicePicker -> _uiState.update { it.copy(voicePicker = null) }
 
@@ -326,9 +325,8 @@ class CloudTtsViewModel(
                     engineType = engineType,
                     engineId = engineId,
                     engineTitle = engineTitle(engineType, engineId),
-                    globalTarget = matches(globalSelection(), engineType, engineId),
-                    bookTarget = matches(bookSelection(), engineType, engineId),
-                    followGlobal = bookSelection() == null,
+                    globalSelected = matches(globalSelection(), engineType, engineId),
+                    bookSelected = matches(bookSelection(), engineType, engineId),
                     loading = true,
                 )
             )
@@ -368,14 +366,15 @@ class CloudTtsViewModel(
         if (_uiState.value.voicePicker != null) loadPickerVoices()
     }
 
-    /** 重算弹框的“跟随全局”标记与音色选项（不改变已打开的目标范围）。 */
+    /** 重新同步弹框的开关状态（= 当前状态）与音色标记。 */
     private fun refreshPickerVoices() {
         val picker = _uiState.value.voicePicker ?: return
         val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, picker.markScope)
         _uiState.update { state ->
             state.copy(
                 voicePicker = state.voicePicker?.copy(
-                    followGlobal = bookSelection() == null,
+                    globalSelected = matches(globalSelection(), picker.engineType, picker.engineId),
+                    bookSelected = matches(bookSelection(), picker.engineType, picker.engineId),
                     voices = buildVoiceOptions(
                         picker.engineType,
                         picker.engineId,
@@ -387,28 +386,58 @@ class CloudTtsViewModel(
         }
     }
 
-    /** 独立开关某个目标范围（全局 / 本书可同时打开）。 */
-    private fun toggleVoiceScope(scope: CloudTtsScope) {
-        val picker = _uiState.value.voicePicker ?: return
-        val globalTarget = if (scope == CloudTtsScope.Global) !picker.globalTarget else picker.globalTarget
-        val bookTarget = if (scope == CloudTtsScope.Book) !picker.bookTarget else picker.bookTarget
-        val markScope = if (bookTarget) CloudTtsScope.Book else CloudTtsScope.Global
-        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, markScope)
-        _uiState.update { state ->
-            state.copy(
-                voicePicker = state.voicePicker?.copy(
-                    globalTarget = globalTarget,
-                    bookTarget = bookTarget,
-                    voices = buildVoiceOptions(
-                        picker.engineType,
-                        picker.engineId,
-                        pickerNative,
-                        selectedSpeaker,
-                    ).toImmutableList(),
-                )
-            )
+    /**
+     * 开关某个范围：打开即把该引擎设为该范围的默认（用该范围当前音色或引擎默认音色），
+     * 关闭即清除该范围。
+     */
+    private fun toggleVoiceScope(scope: CloudTtsScope) = viewModelScope.launch {
+        val picker = _uiState.value.voicePicker ?: return@launch
+        val turningOn = when (scope) {
+            CloudTtsScope.Global -> !picker.globalSelected
+            CloudTtsScope.Book -> !picker.bookSelected
         }
+        if (turningOn) {
+            val speakerId = selectedSpeakerFor(picker.engineType, picker.engineId, scope)
+                ?: defaultSpeakerIdFor(picker)
+            if (picker.engineType == ReadAloudVoice.ENGINE_CLOUD && speakerId.isBlank()) {
+                toast(application.getString(R.string.cloud_tts_select_voice_first))
+                return@launch
+            }
+            if (picker.engineType == ReadAloudVoice.ENGINE_CLOUD) {
+                ensureCloudPreset(picker.engineId, speakerId, pickerNative.firstOrNull { it.id == speakerId })
+            }
+            applySelection(selectionValue(picker, speakerId), forBook = scope == CloudTtsScope.Book)
+        } else {
+            clearScope(scope)
+        }
+        refreshPickerVoices()
     }
+
+    /** 清除某个范围的引擎选择。 */
+    private suspend fun clearScope(scope: CloudTtsScope) {
+        if (scope == CloudTtsScope.Book) {
+            if (bookUrl != null) writeBookSelection(null)
+        } else {
+            readAloudSettingsGateway.update { it.copy(ttsEngine = null) }
+        }
+        ReadAloud.upReadAloudClass()
+        rebuildEngineItems()
+    }
+
+    private fun defaultSpeakerIdFor(picker: CloudTtsVoicePickerUi): String = when (picker.engineType) {
+        ReadAloudVoice.ENGINE_CLOUD -> pickerNative.firstOrNull()?.id.orEmpty()
+        else -> ""
+    }
+
+    private fun selectionValue(picker: CloudTtsVoicePickerUi, speakerId: String): String =
+        ReadAloudEngineSelection.serialize(
+            ReadAloudEngineSelection(
+                engineType = picker.engineType,
+                engineId = picker.engineId,
+                speakerId = speakerId,
+                displayName = engineTitle(picker.engineType, picker.engineId),
+            )
+        )
 
     private fun selectedSpeakerFor(
         engineType: String,
@@ -510,21 +539,13 @@ class CloudTtsViewModel(
         if (engineType == ReadAloudVoice.ENGINE_CLOUD) {
             ensureCloudPreset(engineId, speakerId, native)
         }
-        val label = engineTitle(engineType, engineId)
-        val value = ReadAloudEngineSelection.serialize(
-            ReadAloudEngineSelection(
-                engineType = engineType,
-                engineId = engineId,
-                speakerId = speakerId,
-                displayName = label,
-            )
-        )
-        // 设到所有已打开的目标范围；都没打开时按全局兜底。
-        val targets = buildList {
-            if (picker.globalTarget) add(CloudTtsScope.Global)
-            if (picker.bookTarget) add(CloudTtsScope.Book)
+        val value = selectionValue(picker, speakerId)
+        // 设到所有已开启的范围（该引擎当前为默认的范围）；都没开启时按全局兜底。
+        val scopes = buildList {
+            if (picker.globalSelected) add(CloudTtsScope.Global)
+            if (picker.bookSelected) add(CloudTtsScope.Book)
         }.ifEmpty { listOf(CloudTtsScope.Global) }
-        targets.forEach { scope ->
+        scopes.forEach { scope ->
             applySelection(value, forBook = scope == CloudTtsScope.Book)
         }
         _uiState.update { it.copy(voicePicker = null) }
@@ -934,18 +955,6 @@ class CloudTtsViewModel(
             readAloudSettingsGateway.update { it.copy(ttsEngine = value) }
         }
         ReadAloud.upReadAloudClass()
-        rebuildEngineItems()
-    }
-
-    private fun clearBookSelection() = viewModelScope.launch {
-        if (bookUrl == null) return@launch
-        writeBookSelection(null)
-        ReadAloud.upReadAloudClass()
-        // 本书不再覆盖：关闭「本书」目标开关，并重算“跟随全局”与音色标记。
-        _uiState.update { state ->
-            state.copy(voicePicker = state.voicePicker?.copy(bookTarget = false))
-        }
-        refreshPickerVoices()
         rebuildEngineItems()
     }
 

@@ -3099,8 +3099,6 @@
     <string name="cloud_tts_default_voice">Default voice</string>
     <string name="read_aloud_scope_global">Global</string>
     <string name="read_aloud_scope_book">This book</string>
-    <string name="read_aloud_follow_global">Follow global</string>
-    <string name="read_aloud_follow_global_summary">Use the global default engine for this book</string>
     <string name="cloud_tts_voice_count">Loaded %1$d voices</string>
     <string name="cloud_tts_cannot_change_native_voice">The native voice cannot be changed while editing. Create a new voice preset instead.</string>
     <string name="cloud_tts_select_provider">Select a cloud TTS provider</string>

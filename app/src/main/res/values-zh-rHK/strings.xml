@@ -2827,8 +2827,6 @@
     <string name="cloud_tts_default_voice">預設音色</string>
     <string name="read_aloud_scope_global">全域</string>
     <string name="read_aloud_scope_book">本書</string>
-    <string name="read_aloud_follow_global">跟隨全域</string>
-    <string name="read_aloud_follow_global_summary">本書使用全域預設引擎</string>
     <string name="cloud_tts_voice_count">已取得 %1$d 個音色</string>
     <string name="cloud_tts_cannot_change_native_voice">編輯預設時不能更換原生音色，請新增音色預設</string>
     <string name="cloud_tts_select_provider">請選擇雲端 TTS 廠商</string>

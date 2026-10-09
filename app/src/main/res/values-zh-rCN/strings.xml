@@ -3095,8 +3095,6 @@
     <string name="cloud_tts_default_voice">默认音色</string>
     <string name="read_aloud_scope_global">全局</string>
     <string name="read_aloud_scope_book">本书</string>
-    <string name="read_aloud_follow_global">跟随全局</string>
-    <string name="read_aloud_follow_global_summary">本书使用全局默认引擎</string>
     <string name="cloud_tts_voice_count">已获取 %1$d 个音色</string>
     <string name="cloud_tts_cannot_change_native_voice">编辑预设时不能更换原生音色，请新建音色预设</string>
     <string name="cloud_tts_select_provider">请选择云 TTS 厂商</string>
