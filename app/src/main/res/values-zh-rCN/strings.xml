@@ -3059,7 +3059,7 @@
     <string name="cloud_tts_no_matching_voice">没有匹配的音色</string>
     <string name="cloud_tts_selected">已选择</string>
     <string name="cloud_tts_current_voice">当前音色</string>
-    <string name="cloud_tts_refresh_catalog">刷新在线音色目录</string>
+    <string name="cloud_tts_refresh_catalog">刷新音色目录</string>
     <string name="cloud_tts_hide_manual_voice">隐藏手动输入</string>
     <string name="cloud_tts_manual_voice_action">目录中没有？手动填写音色 ID</string>
     <string name="cloud_tts_native_voice_id">原生音色 ID（可手动填写）</string>
@@ -3095,6 +3095,8 @@
     <string name="cloud_tts_default_voice">默认音色</string>
     <string name="read_aloud_scope_global">全局</string>
     <string name="read_aloud_scope_book">本书</string>
+    <string name="read_aloud_follow_global">跟随全局</string>
+    <string name="read_aloud_follow_global_summary">本书使用全局默认引擎</string>
     <string name="cloud_tts_voice_count">已获取 %1$d 个音色</string>
     <string name="cloud_tts_cannot_change_native_voice">编辑预设时不能更换原生音色，请新建音色预设</string>
     <string name="cloud_tts_select_provider">请选择云 TTS 厂商</string>

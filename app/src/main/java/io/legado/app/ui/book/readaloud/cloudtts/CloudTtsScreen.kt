@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -410,74 +411,98 @@ private fun VoicePickerSheet(
         },
     ) {
         val current = picker ?: return@AppModalBottomSheet
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (state.hasBookContext) {
-                item {
-                    Row(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ToggleChip(
-                            label = stringResource(R.string.read_aloud_scope_global),
-                            selected = current.scope == CloudTtsScope.Global,
-                            onToggle = { onIntent(CloudTtsIntent.SelectVoiceScope(CloudTtsScope.Global)) },
-                        )
-                        ToggleChip(
-                            label = stringResource(R.string.read_aloud_scope_book),
-                            selected = current.scope == CloudTtsScope.Book,
-                            onToggle = { onIntent(CloudTtsIntent.SelectVoiceScope(CloudTtsScope.Book)) },
+        Column(modifier = Modifier.fillMaxWidth()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (state.hasBookContext) {
+                    item {
+                        Row(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ToggleChip(
+                                label = stringResource(R.string.read_aloud_scope_global),
+                                selected = current.globalTarget,
+                                onToggle = { onIntent(CloudTtsIntent.ToggleVoiceScope(CloudTtsScope.Global)) },
+                            )
+                            ToggleChip(
+                                label = stringResource(R.string.read_aloud_scope_book),
+                                selected = current.bookTarget,
+                                onToggle = { onIntent(CloudTtsIntent.ToggleVoiceScope(CloudTtsScope.Book)) },
+                            )
+                        }
+                    }
+                }
+                if (state.hasBookContext && current.bookTarget) {
+                    item {
+                        TinyClickableSettingItem(
+                            title = stringResource(R.string.read_aloud_follow_global),
+                            description = stringResource(R.string.read_aloud_follow_global_summary),
+                            trailingContent = {
+                                if (current.followGlobal) {
+                                    androidx.compose.material3.Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = LegadoTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            onClick = { onIntent(CloudTtsIntent.ClearBookSelection) },
                         )
                     }
                 }
+                when {
+                    current.loading -> item {
+                        AppText(
+                            text = stringResource(R.string.cloud_tts_loading_voices),
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+
+                    current.error != null -> item {
+                        AppText(
+                            text = current.error,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+
+                    current.voices.isEmpty() -> item {
+                        AppText(
+                            text = stringResource(R.string.cloud_tts_no_matching_voice),
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+
+                    else -> items(current.voices, key = { "voice:${it.speakerId}" }) { voice ->
+                        VoiceOptionRow(voice, onIntent)
+                    }
+                }
             }
-            when {
-                current.loading -> item {
-                    AppText(
-                        text = stringResource(R.string.cloud_tts_loading_voices),
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    )
-                }
-
-                current.error != null -> item {
-                    AppText(
-                        text = current.error,
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    )
-                }
-
-                current.voices.isEmpty() -> item {
-                    AppText(
-                        text = stringResource(R.string.cloud_tts_no_matching_voice),
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    )
-                }
-
-                else -> items(current.voices, key = { "voice:${it.speakerId}" }) { voice ->
-                    VoiceOptionRow(voice, onIntent)
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MediumTonalButton(
+                    onClick = { onIntent(CloudTtsIntent.AddVoicePreset) },
+                    icon = Icons.Default.Add,
+                    text = stringResource(R.string.cloud_tts_add_voice),
+                )
+                if (current.canRefreshCatalog) {
                     MediumTonalButton(
-                        onClick = { onIntent(CloudTtsIntent.AddVoicePreset) },
-                        icon = Icons.Default.Add,
-                        text = stringResource(R.string.cloud_tts_add_voice),
+                        onClick = { onIntent(CloudTtsIntent.RefreshVoiceCatalog) },
+                        icon = Icons.Default.Refresh,
+                        text = stringResource(R.string.cloud_tts_refresh_catalog),
                     )
-                    if (current.canRefreshCatalog) {
-                        MediumTonalButton(
-                            onClick = { onIntent(CloudTtsIntent.RefreshVoiceCatalog) },
-                            text = stringResource(R.string.cloud_tts_refresh_catalog),
-                        )
-                    }
                 }
             }
-            item { Spacer(Modifier.height(8.dp)) }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

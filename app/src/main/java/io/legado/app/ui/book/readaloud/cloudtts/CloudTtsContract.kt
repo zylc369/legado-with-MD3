@@ -50,12 +50,20 @@ data class CloudTtsVoicePickerUi(
     val engineType: String,
     val engineId: String,
     val engineTitle: String,
-    val scope: CloudTtsScope,
+    /** 本次要设置的范围：全局与本书互相独立，可同时打开。初始值 = 当前状态。 */
+    val globalTarget: Boolean = false,
+    val bookTarget: Boolean = false,
+    /** 本书是否没有任何引擎覆盖（即跟随全局）。 */
+    val followGlobal: Boolean = false,
     val voices: ImmutableList<CloudTtsVoiceOptionUi> = persistentListOf(),
     val loading: Boolean = false,
     val error: String? = null,
     val canRefreshCatalog: Boolean = false,
-)
+) {
+    /** 用于标记“当前音色”的参照范围：本书优先。 */
+    val markScope: CloudTtsScope
+        get() = if (bookTarget) CloudTtsScope.Book else CloudTtsScope.Global
+}
 
 /** 音色弹框里的一条音色（原生音色或用户预设）。 */
 @Stable
@@ -118,8 +126,9 @@ sealed interface CloudTtsIntent {
     data class SetBookContext(val bookUrl: String?) : CloudTtsIntent
 
     data class OpenVoicePicker(val engineType: String, val engineId: String) : CloudTtsIntent
-    data class SelectVoiceScope(val scope: CloudTtsScope) : CloudTtsIntent
+    data class ToggleVoiceScope(val scope: CloudTtsScope) : CloudTtsIntent
     data class SelectVoice(val speakerId: String) : CloudTtsIntent
+    data object ClearBookSelection : CloudTtsIntent
     data object RefreshVoiceCatalog : CloudTtsIntent
     data object DismissVoicePicker : CloudTtsIntent
 

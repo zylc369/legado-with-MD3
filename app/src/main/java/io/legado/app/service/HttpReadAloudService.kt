@@ -168,6 +168,8 @@ class HttpReadAloudService : BaseReadAloudService(),
     private var paragraphIntervalJob: Coroutine<*>? = null
     private var downloadErrorNo: Int = 0
     private var playErrorNo = 0
+    /** 「连续错误已暂停」只提示一次，直到下一次成功下载后再允许提示。 */
+    private val consecutiveErrorToasted = java.util.concurrent.atomic.AtomicBoolean(false)
     private val downloadTaskActiveLock = Mutex()
     private val systemTtsFileSynthesizer by lazy { SystemTtsFileSynthesizer(this) }
     private val cloudTtsAudioSynthesizer by lazy {
@@ -869,6 +871,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                 currentCoroutineContext().ensureActive()
                 response.body.byteStream().let { stream ->
                     downloadErrorNo = 0
+                    consecutiveErrorToasted.set(false)
                     return stream
                 }
             } catch (e: Exception) {
@@ -884,7 +887,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                         downloadErrorNo++
                         if (downloadErrorNo > 5) {
                             val msg = "tts超时或连接错误超过5次\n${e.localizedMessage}"
-                            AppLog.put(msg, e, true)
+                            AppLog.put(msg, e, toast = consecutiveErrorToasted.compareAndSet(false, true))
                             throw e
                         }
                     }
@@ -896,7 +899,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                         e.printOnDebug()
                         if (downloadErrorNo > 5) {
                             val msg1 = "TTS服务器连续5次错误，已暂停阅读。"
-                            AppLog.put(msg1, e, true)
+                            AppLog.put(msg1, e, toast = consecutiveErrorToasted.compareAndSet(false, true))
                             throw e
                         } else {
                             AppLog.put("TTS下载音频出错，使用无声音频代替。段落长度=${speakText.length}")

@@ -125,8 +125,9 @@ class CloudTtsViewModel(
             is CloudTtsIntent.SetBookContext -> setBookContext(intent.bookUrl)
 
             is CloudTtsIntent.OpenVoicePicker -> openVoicePicker(intent.engineType, intent.engineId)
-            is CloudTtsIntent.SelectVoiceScope -> selectVoiceScope(intent.scope)
+            is CloudTtsIntent.ToggleVoiceScope -> toggleVoiceScope(intent.scope)
             is CloudTtsIntent.SelectVoice -> selectVoice(intent.speakerId)
+            CloudTtsIntent.ClearBookSelection -> clearBookSelection()
             CloudTtsIntent.RefreshVoiceCatalog -> refreshVoiceCatalog()
             CloudTtsIntent.DismissVoicePicker -> _uiState.update { it.copy(voicePicker = null) }
 
@@ -319,21 +320,15 @@ class CloudTtsViewModel(
     // --- 音色弹框 ---
 
     private fun openVoicePicker(engineType: String, engineId: String) = viewModelScope.launch {
-        val book = bookSelection()
-        val global = globalSelection()
-        val scope = when {
-            matches(book, engineType, engineId) -> CloudTtsScope.Book
-            matches(global, engineType, engineId) -> CloudTtsScope.Global
-            bookUrl != null -> CloudTtsScope.Book
-            else -> CloudTtsScope.Global
-        }
         _uiState.update { state ->
             state.copy(
                 voicePicker = CloudTtsVoicePickerUi(
                     engineType = engineType,
                     engineId = engineId,
                     engineTitle = engineTitle(engineType, engineId),
-                    scope = scope,
+                    globalTarget = matches(globalSelection(), engineType, engineId),
+                    bookTarget = matches(bookSelection(), engineType, engineId),
+                    followGlobal = bookSelection() == null,
                     loading = true,
                 )
             )
@@ -347,21 +342,15 @@ class CloudTtsViewModel(
         runCatching { fetchNativeVoices(picker.engineType, picker.engineId) }
             .onSuccess { native ->
                 pickerNative = native
-                val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, picker.scope)
                 _uiState.update { state ->
                     state.copy(
                         voicePicker = state.voicePicker?.copy(
-                            voices = buildVoiceOptions(
-                                picker.engineType,
-                                picker.engineId,
-                                native,
-                                selectedSpeaker,
-                            ).toImmutableList(),
                             loading = false,
                             canRefreshCatalog = canRefreshCatalog(picker.engineType, picker.engineId),
                         )
                     )
                 }
+                refreshPickerVoices()
             }
             .onFailure { error ->
                 _uiState.update { state ->
@@ -379,13 +368,37 @@ class CloudTtsViewModel(
         if (_uiState.value.voicePicker != null) loadPickerVoices()
     }
 
-    private fun selectVoiceScope(scope: CloudTtsScope) {
+    /** 重算弹框的“跟随全局”标记与音色选项（不改变已打开的目标范围）。 */
+    private fun refreshPickerVoices() {
         val picker = _uiState.value.voicePicker ?: return
-        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, scope)
+        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, picker.markScope)
         _uiState.update { state ->
             state.copy(
                 voicePicker = state.voicePicker?.copy(
-                    scope = scope,
+                    followGlobal = bookSelection() == null,
+                    voices = buildVoiceOptions(
+                        picker.engineType,
+                        picker.engineId,
+                        pickerNative,
+                        selectedSpeaker,
+                    ).toImmutableList(),
+                )
+            )
+        }
+    }
+
+    /** 独立开关某个目标范围（全局 / 本书可同时打开）。 */
+    private fun toggleVoiceScope(scope: CloudTtsScope) {
+        val picker = _uiState.value.voicePicker ?: return
+        val globalTarget = if (scope == CloudTtsScope.Global) !picker.globalTarget else picker.globalTarget
+        val bookTarget = if (scope == CloudTtsScope.Book) !picker.bookTarget else picker.bookTarget
+        val markScope = if (bookTarget) CloudTtsScope.Book else CloudTtsScope.Global
+        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, markScope)
+        _uiState.update { state ->
+            state.copy(
+                voicePicker = state.voicePicker?.copy(
+                    globalTarget = globalTarget,
+                    bookTarget = bookTarget,
                     voices = buildVoiceOptions(
                         picker.engineType,
                         picker.engineId,
@@ -445,33 +458,40 @@ class CloudTtsViewModel(
     private suspend fun fetchNativeVoices(
         engineType: String,
         engineId: String,
-    ): List<TtsNativeVoice> = when (engineType) {
-        ReadAloudVoice.ENGINE_SYSTEM -> systemCatalog.getVoices(engineId)
-        ReadAloudVoice.ENGINE_CLOUD -> {
-            val engine = engines.firstOrNull { it.id == engineId }
-                ?: return emptyList()
-            synthesizer.fetchVoices(engine).map { descriptor ->
-                TtsNativeVoice(
-                    id = descriptor.id,
-                    engineId = engineId,
-                    displayName = descriptor.displayName,
-                    locale = descriptor.locale,
-                    gender = descriptor.gender,
-                    styles = descriptor.styles,
-                    roles = descriptor.roles,
-                )
+    ): List<TtsNativeVoice> {
+        val voices = when (engineType) {
+            ReadAloudVoice.ENGINE_SYSTEM -> systemCatalog.getVoices(engineId)
+            ReadAloudVoice.ENGINE_CLOUD -> {
+                val engine = engines.firstOrNull { it.id == engineId }
+                if (engine == null) {
+                    emptyList()
+                } else {
+                    synthesizer.fetchVoices(engine).map { descriptor ->
+                        TtsNativeVoice(
+                            id = descriptor.id,
+                            engineId = engineId,
+                            displayName = descriptor.displayName,
+                            locale = descriptor.locale,
+                            gender = descriptor.gender,
+                            styles = descriptor.styles,
+                            roles = descriptor.roles,
+                        )
+                    }
+                }
             }
-        }
 
-        ReadAloudVoice.ENGINE_HTTP -> listOf(
-            TtsNativeVoice(
-                id = "",
-                engineId = engineId,
-                displayName = application.getString(R.string.cloud_tts_engine_default_voice),
+            ReadAloudVoice.ENGINE_HTTP -> listOf(
+                TtsNativeVoice(
+                    id = "",
+                    engineId = engineId,
+                    displayName = application.getString(R.string.cloud_tts_engine_default_voice),
+                )
             )
-        )
 
-        else -> emptyList()
+            else -> emptyList()
+        }
+        // 部分系统/云端引擎会返回同名音色，作为列表 key 会重复导致崩溃。
+        return voices.distinctBy { it.id }
     }
 
     private fun canRefreshCatalog(engineType: String, engineId: String): Boolean = when (engineType) {
@@ -499,7 +519,14 @@ class CloudTtsViewModel(
                 displayName = label,
             )
         )
-        applySelection(value, forBook = picker.scope == CloudTtsScope.Book)
+        // 设到所有已打开的目标范围；都没打开时按全局兜底。
+        val targets = buildList {
+            if (picker.globalTarget) add(CloudTtsScope.Global)
+            if (picker.bookTarget) add(CloudTtsScope.Book)
+        }.ifEmpty { listOf(CloudTtsScope.Global) }
+        targets.forEach { scope ->
+            applySelection(value, forBook = scope == CloudTtsScope.Book)
+        }
         _uiState.update { it.copy(voicePicker = null) }
         toast(application.getString(R.string.read_aloud_default_engine_updated))
     }
@@ -886,30 +913,39 @@ class CloudTtsViewModel(
         rebuildEngineItems()
     }
 
+    /** 写入当前书的引擎覆盖；null 表示清除覆盖（跟随全局）。 */
+    private suspend fun writeBookSelection(value: String?) {
+        val url = bookUrl ?: return
+        ReadBook.book?.takeIf { it.bookUrl == url }?.setTtsEngine(value)
+        withContext(Dispatchers.IO) {
+            appDb.bookDao.getBook(url)?.let { book ->
+                book.setTtsEngine(value)
+                appDb.bookDao.update(book)
+            }
+        }
+        bookSelectionRaw = value
+    }
+
     private suspend fun applySelection(value: String, forBook: Boolean) {
         if (forBook && bookUrl != null) {
-            ReadBook.book?.takeIf { it.bookUrl == bookUrl }?.setTtsEngine(value)
-            withContext(Dispatchers.IO) {
-                appDb.bookDao.getBook(bookUrl!!)?.let { book ->
-                    book.setTtsEngine(value)
-                    appDb.bookDao.update(book)
-                }
-            }
-            bookSelectionRaw = value
+            writeBookSelection(value)
         } else {
-            ReadBook.book?.takeIf { it.bookUrl == bookUrl }?.setTtsEngine(null)
-            bookUrl?.let { url ->
-                withContext(Dispatchers.IO) {
-                    appDb.bookDao.getBook(url)?.let { book ->
-                        book.setTtsEngine(null)
-                        appDb.bookDao.update(book)
-                    }
-                }
-            }
+            // 全局与本书互相独立：设置全局不清除本书覆盖。
             readAloudSettingsGateway.update { it.copy(ttsEngine = value) }
-            bookSelectionRaw = null
         }
         ReadAloud.upReadAloudClass()
+        rebuildEngineItems()
+    }
+
+    private fun clearBookSelection() = viewModelScope.launch {
+        if (bookUrl == null) return@launch
+        writeBookSelection(null)
+        ReadAloud.upReadAloudClass()
+        // 本书不再覆盖：关闭「本书」目标开关，并重算“跟随全局”与音色标记。
+        _uiState.update { state ->
+            state.copy(voicePicker = state.voicePicker?.copy(bookTarget = false))
+        }
+        refreshPickerVoices()
         rebuildEngineItems()
     }
 

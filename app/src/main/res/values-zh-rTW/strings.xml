@@ -2796,7 +2796,7 @@
     <string name="cloud_tts_no_matching_voice">沒有符合的音色</string>
     <string name="cloud_tts_selected">已選擇</string>
     <string name="cloud_tts_current_voice">目前音色</string>
-    <string name="cloud_tts_refresh_catalog">重新整理線上音色目錄</string>
+    <string name="cloud_tts_refresh_catalog">重新整理音色目錄</string>
     <string name="cloud_tts_hide_manual_voice">隱藏手動輸入</string>
     <string name="cloud_tts_manual_voice_action">目錄中沒有？手動填寫音色 ID</string>
     <string name="cloud_tts_native_voice_id">原生音色 ID（可手動填寫）</string>
@@ -2832,6 +2832,8 @@
     <string name="cloud_tts_default_voice">預設音色</string>
     <string name="read_aloud_scope_global">全域</string>
     <string name="read_aloud_scope_book">本書</string>
+    <string name="read_aloud_follow_global">跟隨全域</string>
+    <string name="read_aloud_follow_global_summary">本書使用全域預設引擎</string>
     <string name="cloud_tts_voice_count">已取得 %1$d 個音色</string>
     <string name="cloud_tts_cannot_change_native_voice">編輯預設時不能更換原生音色，請新增音色預設</string>
     <string name="cloud_tts_select_provider">請選擇雲端 TTS 供應商</string>
