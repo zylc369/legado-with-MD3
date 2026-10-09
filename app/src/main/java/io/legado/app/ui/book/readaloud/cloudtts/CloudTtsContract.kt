@@ -57,11 +57,7 @@ data class CloudTtsVoicePickerUi(
     val loading: Boolean = false,
     val error: String? = null,
     val canRefreshCatalog: Boolean = false,
-) {
-    /** 用于标记“当前音色”的参照范围：本书优先。 */
-    val markScope: CloudTtsScope
-        get() = if (bookSelected) CloudTtsScope.Book else CloudTtsScope.Global
-}
+)
 
 /** 音色弹框里的一条音色（原生音色或用户预设）。 */
 @Stable

@@ -369,12 +369,15 @@ class CloudTtsViewModel(
     /** 重新同步弹框的开关状态（= 当前状态）与音色标记。 */
     private fun refreshPickerVoices() {
         val picker = _uiState.value.voicePicker ?: return
-        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, picker.markScope)
+        val globalSelected = matches(globalSelection(), picker.engineType, picker.engineId)
+        val bookSelected = matches(bookSelection(), picker.engineType, picker.engineId)
+        val markScope = if (bookSelected) CloudTtsScope.Book else CloudTtsScope.Global
+        val selectedSpeaker = selectedSpeakerFor(picker.engineType, picker.engineId, markScope)
         _uiState.update { state ->
             state.copy(
                 voicePicker = state.voicePicker?.copy(
-                    globalSelected = matches(globalSelection(), picker.engineType, picker.engineId),
-                    bookSelected = matches(bookSelection(), picker.engineType, picker.engineId),
+                    globalSelected = globalSelected,
+                    bookSelected = bookSelected,
                     voices = buildVoiceOptions(
                         picker.engineType,
                         picker.engineId,
@@ -397,7 +400,10 @@ class CloudTtsViewModel(
             CloudTtsScope.Book -> !picker.bookSelected
         }
         if (turningOn) {
+            // 优先沿用该范围已有音色；否则沿用另一范围（同一引擎）的音色；再否则用引擎默认音色。
+            val otherScope = if (scope == CloudTtsScope.Book) CloudTtsScope.Global else CloudTtsScope.Book
             val speakerId = selectedSpeakerFor(picker.engineType, picker.engineId, scope)
+                ?: selectedSpeakerFor(picker.engineType, picker.engineId, otherScope)
                 ?: defaultSpeakerIdFor(picker)
             if (picker.engineType == ReadAloudVoice.ENGINE_CLOUD && speakerId.isBlank()) {
                 toast(application.getString(R.string.cloud_tts_select_voice_first))
@@ -408,20 +414,9 @@ class CloudTtsViewModel(
             }
             applySelection(selectionValue(picker, speakerId), forBook = scope == CloudTtsScope.Book)
         } else {
-            clearScope(scope)
+            applySelection(null, forBook = scope == CloudTtsScope.Book)
         }
         refreshPickerVoices()
-    }
-
-    /** 清除某个范围的引擎选择。 */
-    private suspend fun clearScope(scope: CloudTtsScope) {
-        if (scope == CloudTtsScope.Book) {
-            if (bookUrl != null) writeBookSelection(null)
-        } else {
-            readAloudSettingsGateway.update { it.copy(ttsEngine = null) }
-        }
-        ReadAloud.upReadAloudClass()
-        rebuildEngineItems()
     }
 
     private fun defaultSpeakerIdFor(picker: CloudTtsVoicePickerUi): String = when (picker.engineType) {
@@ -947,24 +942,35 @@ class CloudTtsViewModel(
         bookSelectionRaw = value
     }
 
-    private suspend fun applySelection(value: String, forBook: Boolean) {
-        if (forBook && bookUrl != null) {
-            writeBookSelection(value)
+    /** 写入某个范围的引擎选择；null 表示清除该范围。全局与本书互相独立。 */
+    private suspend fun applySelection(value: String?, forBook: Boolean) {
+        if (forBook) {
+            if (bookUrl != null) writeBookSelection(value)
         } else {
-            // 全局与本书互相独立：设置全局不清除本书覆盖。
             readAloudSettingsGateway.update { it.copy(ttsEngine = value) }
         }
         ReadAloud.upReadAloudClass()
         rebuildEngineItems()
     }
 
+    /** 引擎被删除后，清除指向它的全局/本书默认，避免悬空选择。 */
+    private suspend fun clearSelectionFor(engineType: String, engineId: String) {
+        var changed = false
+        if (matches(globalSelection(), engineType, engineId)) {
+            readAloudSettingsGateway.update { it.copy(ttsEngine = null) }
+            changed = true
+        }
+        if (bookUrl != null && matches(bookSelection(), engineType, engineId)) {
+            writeBookSelection(null)
+            changed = true
+        }
+        if (changed) ReadAloud.upReadAloudClass()
+    }
+
     private fun deleteEngine(id: String) = viewModelScope.launch {
         voices.filter { it.engineId == id }.forEach { voiceGateway.deleteVoice(it) }
         engines.firstOrNull { it.id == id }?.let { engineGateway.delete(it) }
-        if (matches(globalSelection(), ReadAloudVoice.ENGINE_CLOUD, id)) {
-            readAloudSettingsGateway.update { it.copy(ttsEngine = null) }
-            ReadAloud.upReadAloudClass()
-        }
+        clearSelectionFor(ReadAloudVoice.ENGINE_CLOUD, id)
     }
 
     private fun requestDeleteVoice(id: String) {
@@ -1016,10 +1022,7 @@ class CloudTtsViewModel(
     private fun deleteHttpTts(engineId: String) = viewModelScope.launch {
         val id = engineId.toLongOrNull() ?: return@launch
         withContext(Dispatchers.IO) { appDb.httpTTSDao.get(id)?.let(appDb.httpTTSDao::delete) }
-        if (matches(globalSelection(), ReadAloudVoice.ENGINE_HTTP, engineId)) {
-            readAloudSettingsGateway.update { it.copy(ttsEngine = null) }
-            ReadAloud.upReadAloudClass()
-        }
+        clearSelectionFor(ReadAloudVoice.ENGINE_HTTP, engineId)
     }
 
     private fun importHttpTtsFile(uri: Uri) = viewModelScope.launch {
