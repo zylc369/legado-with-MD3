@@ -7,61 +7,70 @@ import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
+/** 选择朗读默认引擎的范围：全局设置或当前书本。 */
+enum class CloudTtsScope { Global, Book }
+
 @Stable
 data class CloudTtsUiState(
-    val loading: Boolean = true,
-    val engines: ImmutableList<CloudTtsEngineItemUi> = persistentListOf(),
-    val systemEngines: ImmutableList<TtsManagedEngineItemUi> = persistentListOf(),
-    val httpEngines: ImmutableList<TtsManagedEngineItemUi> = persistentListOf(),
-    val voices: ImmutableList<CloudTtsVoiceItemUi> = persistentListOf(),
+    /** 是否从某本书进入；为 false 时只能设置全局，不显示「本书」。 */
+    val hasBookContext: Boolean = false,
+    val cloudEngines: ImmutableList<CloudTtsEngineItemUi> = persistentListOf(),
+    val httpEngines: ImmutableList<CloudTtsEngineItemUi> = persistentListOf(),
+    val systemEngines: ImmutableList<CloudTtsEngineItemUi> = persistentListOf(),
+    val voicePicker: CloudTtsVoicePickerUi? = null,
     val discoveredVoices: ImmutableList<CloudTtsDiscoveredVoiceUi> = persistentListOf(),
-    val availableEngines: ImmutableList<TtsEngineOptionUi> = persistentListOf(),
     val engineEditor: CloudTtsEngineEditorUi? = null,
     val voiceEditor: TtsVoicePresetEditorUi? = null,
     val httpTtsEditor: HttpTTS? = null,
     val httpTtsImportState: BaseImportUiState<HttpTTS> = BaseImportUiState.Idle,
-    val showVoiceEnginePicker: Boolean = false,
     val activeDialog: CloudTtsDialog? = null,
     val testing: Boolean = false,
     val discovering: Boolean = false,
-    val selectedTab: CloudTtsTab = CloudTtsTab.Voices,
 )
 
-enum class CloudTtsTab { Voices, Engines }
-
+/** 引擎分组列表里的一项；同一类型按来源分区渲染。 */
 @Stable
 data class CloudTtsEngineItemUi(
-    val id: String,
+    val engineType: String,
+    val engineId: String,
     val title: String,
     val summary: String,
+    /** 该引擎当前生效的音色名（未选中引擎时为空）。 */
+    val voiceName: String = "",
+    val globalSelected: Boolean = false,
+    val bookSelected: Boolean = false,
+    val editable: Boolean = false,
+    val deletable: Boolean = false,
+    val loginUrl: String = "",
+)
+
+/** 某个引擎的音色选择弹框。 */
+@Stable
+data class CloudTtsVoicePickerUi(
+    val engineType: String,
+    val engineId: String,
+    val engineTitle: String,
+    val scope: CloudTtsScope,
+    val voices: ImmutableList<CloudTtsVoiceOptionUi> = persistentListOf(),
+    val loading: Boolean = false,
+    val error: String? = null,
+    val canRefreshCatalog: Boolean = false,
+)
+
+/** 音色弹框里的一条音色（原生音色或用户预设）。 */
+@Stable
+data class CloudTtsVoiceOptionUi(
+    val speakerId: String,
+    val label: String,
+    val description: String = "",
     val selected: Boolean = false,
+    val editable: Boolean = false,
+    val deletable: Boolean = false,
+    val presetId: String? = null,
 )
 
 @Stable
-data class TtsManagedEngineItemUi(
-    val engineType: String,
-    val engineId: String,
-    val title: String,
-    val summary: String = "",
-    val selected: Boolean = false,
-    val loginUrl: String = "",
-)
-@Stable data class CloudTtsVoiceItemUi(
-    val id: String,
-    val title: String,
-    val summary: String,
-    val deletable: Boolean,
-    val editable: Boolean,
-)
-@Stable data class TtsEngineOptionUi(
-    val engineType: String,
-    val engineId: String,
-    val title: String,
-    val summary: String,
-    val catalogHint: String,
-    val remoteCatalog: Boolean = false,
-)
-@Stable data class CloudTtsDiscoveredVoiceUi(
+data class CloudTtsDiscoveredVoiceUi(
     val id: String,
     val label: String,
     val locale: String,
@@ -106,16 +115,29 @@ data class TtsVoicePresetEditorUi(
 )
 
 sealed interface CloudTtsIntent {
-    data class SelectTab(val tab: CloudTtsTab) : CloudTtsIntent
     data class SetBookContext(val bookUrl: String?) : CloudTtsIntent
+
+    data class OpenVoicePicker(val engineType: String, val engineId: String) : CloudTtsIntent
+    data class SelectVoiceScope(val scope: CloudTtsScope) : CloudTtsIntent
+    data class SelectVoice(val speakerId: String) : CloudTtsIntent
+    data object RefreshVoiceCatalog : CloudTtsIntent
+    data object DismissVoicePicker : CloudTtsIntent
+
+    data object AddVoicePreset : CloudTtsIntent
+    data class EditVoicePreset(val voiceId: String) : CloudTtsIntent
+    data class RequestDeleteVoice(val voiceId: String) : CloudTtsIntent
+    data object ConfirmDeleteVoice : CloudTtsIntent
+    data class UpdateVoiceEditor(val editor: TtsVoicePresetEditorUi) : CloudTtsIntent
+    data object DismissVoiceEditor : CloudTtsIntent
+    data class SelectEditorVoice(val voiceId: String) : CloudTtsIntent
+    data object DiscoverEditorVoices : CloudTtsIntent
+
     data object AddEngine : CloudTtsIntent
-    data object AddVoice : CloudTtsIntent
-    data class AddVoiceForEngine(val engineType: String, val engineId: String) : CloudTtsIntent
-    data class EditEngine(val id: String) : CloudTtsIntent
-    data class DeleteEngine(val id: String) : CloudTtsIntent
-    data class SetDefaultEngine(val engineType: String, val engineId: String) : CloudTtsIntent
-    data object ApplyDefaultEngineGlobally : CloudTtsIntent
-    data object ApplyDefaultEngineForBook : CloudTtsIntent
+    data class EditEngine(val engineId: String) : CloudTtsIntent
+    data class DeleteEngine(val engineId: String) : CloudTtsIntent
+    data class UpdateEngineEditor(val editor: CloudTtsEngineEditorUi) : CloudTtsIntent
+    data object DismissEngineEditor : CloudTtsIntent
+
     data class EditHttpTts(val engineId: String? = null) : CloudTtsIntent
     data class SaveHttpTts(val value: HttpTTS) : CloudTtsIntent
     data class DeleteHttpTts(val engineId: String) : CloudTtsIntent
@@ -133,17 +155,7 @@ sealed interface CloudTtsIntent {
     data class ExportHttpTtsFileSelected(val uri: Uri) : CloudTtsIntent
     data object ExportHttpTtsUrl : CloudTtsIntent
     data object ClearTtsCache : CloudTtsIntent
-    data class RequestDeleteVoice(val id: String) : CloudTtsIntent
-    data object ConfirmDeleteVoice : CloudTtsIntent
-    data class EditVoice(val id: String) : CloudTtsIntent
-    data class UpdateEngineEditor(val editor: CloudTtsEngineEditorUi) : CloudTtsIntent
-    data class UpdateVoiceEditor(val editor: TtsVoicePresetEditorUi) : CloudTtsIntent
-    data object DismissEngineEditor : CloudTtsIntent
-    data object DismissVoiceEditor : CloudTtsIntent
-    data object DismissVoiceEnginePicker : CloudTtsIntent
-    data class SelectEngine(val engineType: String, val engineId: String) : CloudTtsIntent
-    data object DiscoverVoices : CloudTtsIntent
-    data class SelectVoice(val id: String) : CloudTtsIntent
+
     data object TestEngine : CloudTtsIntent
     data object Preview : CloudTtsIntent
     data object Save : CloudTtsIntent
@@ -164,5 +176,4 @@ sealed interface CloudTtsEffect {
 sealed interface CloudTtsDialog {
     data class Error(val message: String) : CloudTtsDialog
     data class DeleteVoice(val id: String, val title: String) : CloudTtsDialog
-    data class DefaultEngineScope(val value: String?, val title: String) : CloudTtsDialog
 }

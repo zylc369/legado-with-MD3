@@ -3024,7 +3024,6 @@
     <string name="cloud_tts_cloud_engines">Cloud TTS</string>
     <string name="cloud_tts_http_engines">HTTP protocol TTS</string>
     <string name="cloud_tts_system_engines">System TTS</string>
-    <string name="cloud_tts_default_requires_voice">Save at least one voice for this cloud engine before making it the default.</string>
     <string name="read_aloud_default_engine_updated">Default read-aloud engine updated</string>
     <string name="cloud_tts_delete_voice_message">Delete the voice preset “%1$s”? Character assignments using it will fall back to another voice.</string>
     <string name="cloud_tts_no_test_voice">The provider returned no voice available for testing</string>
@@ -3042,15 +3041,8 @@
     <string name="cloud_tts_preview_playback_failed">Preview playback failed</string>
     <string name="cloud_tts_add_engine">Add cloud engine</string>
     <string name="cloud_tts_add_voice">Add voice preset</string>
-    <string name="cloud_tts_voices_tab">Voices</string>
-    <string name="cloud_tts_engines_tab">Engines</string>
-    <string name="cloud_tts_choose_engine">Choose an engine and add a voice</string>
     <string name="cloud_tts_select_voice">Select voice</string>
-    <string name="cloud_tts_saved_voices">Saved voices</string>
-    <string name="cloud_tts_no_saved_voices">No saved voices. Choose an engine above first.</string>
     <string name="cloud_tts_engines">Cloud TTS engines</string>
-    <string name="cloud_tts_no_engines">No cloud TTS engine configured</string>
-    <string name="cloud_tts_available_engines">Available reading engines</string>
     <string name="cloud_tts_copy_error">Copy error</string>
     <string name="cloud_tts_edit_engine">Edit cloud TTS engine</string>
     <string name="cloud_tts_engine_name">Engine name</string>
@@ -3064,9 +3056,6 @@
     <string name="cloud_tts_testing">Testing…</string>
     <string name="cloud_tts_connection_test">Connection test</string>
     <string name="cloud_tts_edit_voice">Edit voice preset</string>
-    <string name="cloud_tts_step_engine">1. Reading engine</string>
-    <string name="cloud_tts_select">Select</string>
-    <string name="cloud_tts_select_engine">Select engine</string>
     <string name="cloud_tts_edit_voice_binding_notice">The engine and native voice cannot be changed while editing, to keep character assignments stable.</string>
     <string name="cloud_tts_step_voice">Voice</string>
     <string name="cloud_tts_search_voice">Search voice, language or ID</string>
@@ -3107,6 +3096,9 @@
     <string name="cloud_tts_voice_engine_unavailable">The engine used by this voice is currently unavailable</string>
     <string name="cloud_tts_cannot_change_engine">The engine cannot be changed while editing. Create a new voice preset instead.</string>
     <string name="cloud_tts_engine_default_voice">Engine default voice</string>
+    <string name="cloud_tts_default_voice">Default voice</string>
+    <string name="read_aloud_scope_global">Global</string>
+    <string name="read_aloud_scope_book">This book</string>
     <string name="cloud_tts_voice_count">Loaded %1$d voices</string>
     <string name="cloud_tts_cannot_change_native_voice">The native voice cannot be changed while editing. Create a new voice preset instead.</string>
     <string name="cloud_tts_select_provider">Select a cloud TTS provider</string>

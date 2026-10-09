@@ -11,6 +11,7 @@ import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.domain.gateway.ReadAloudSettingsGateway
 import io.legado.app.domain.model.readaloud.ReadAloudPlaybackCursor
+import io.legado.app.domain.model.readaloud.ReadAloudEngineSelection
 import io.legado.app.domain.model.readaloud.ReadAloudVoice
 import io.legado.app.domain.model.readaloud.SpeechEngineRoute
 import io.legado.app.domain.model.readaloud.SpeechVoiceRouter
@@ -18,13 +19,11 @@ import io.legado.app.domain.model.readaloud.SystemTtsVoiceConfig
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.MediaHelp
 import io.legado.app.help.coroutine.Coroutine
-import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.config.readConfig.ReadConfig
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
-import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.servicePendingIntent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.delay
@@ -84,7 +83,8 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
     private fun initTts(engineOverride: String? = null) {
         ttsInitFinish = false
         val engine = engineOverride
-            ?: GSON.fromJsonObject<SelectItem<String>>(ReadAloud.ttsEngine).getOrNull()?.value
+            ?: ReadAloudEngineSelection.parse(ReadAloud.ttsEngine)
+                ?.takeIf { it.engineType == ReadAloudVoice.ENGINE_SYSTEM }?.engineId
         activeEngine = engine.orEmpty()
         val generation = ++initGeneration
         LogUtils.d(TAG, "initTts engine:$engine")
@@ -264,20 +264,26 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
     }
 
     private fun systemVoiceForCurrentCue(): ReadAloudVoice {
-        val configured = GSON.fromJsonObject<SelectItem<String>>(ReadAloud.ttsEngine)
-            .getOrNull()?.value.orEmpty()
+        val selection = ReadAloudEngineSelection.parse(ReadAloud.ttsEngine)
+            ?.takeIf { it.engineType == ReadAloudVoice.ENGINE_SYSTEM }
+        val configured = selection?.engineId.orEmpty()
+        val configuredSpeaker = selection?.speakerId.orEmpty()
         val fallback = ReadAloudVoice(
-            id = "runtime-system:$configured",
+            id = "runtime-system:$configured:$configuredSpeaker",
             engineType = ReadAloudVoice.ENGINE_SYSTEM,
             engineId = configured,
-            speakerId = "",
+            speakerId = configuredSpeaker,
             displayName = configured,
         )
         val cue = playbackQueue.cues.getOrNull(nowSpeak) ?: return fallback
         return SpeechVoiceRouter.route(
             cue = cue,
             supportedEngineTypes = setOf(ReadAloudVoice.ENGINE_SYSTEM),
-            defaultRoute = SpeechEngineRoute(ReadAloudVoice.ENGINE_SYSTEM, configured),
+            defaultRoute = SpeechEngineRoute(
+                ReadAloudVoice.ENGINE_SYSTEM,
+                configured,
+                configuredSpeaker,
+            ),
         ).voice ?: fallback
     }
 

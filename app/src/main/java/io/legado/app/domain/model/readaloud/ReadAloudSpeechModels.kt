@@ -1,5 +1,8 @@
 package io.legado.app.domain.model.readaloud
 
+import com.google.gson.JsonObject
+import io.legado.app.utils.GSON
+
 data class ReadAloudVoice(
     val id: String,
     val engineType: String,
@@ -29,7 +32,39 @@ data class ReadAloudEngineSelection(
     val engineId: String,
     val speakerId: String = "",
     val displayName: String = "",
-)
+) {
+    companion object {
+        /**
+         * 解析「全局/本书」朗读引擎选择。
+         *
+         * 现行格式是 [ReadAloudEngineSelection] 的 JSON（所有引擎类型统一）；
+         * 兼容两类历史值：
+         * - 系统引擎的 `SelectItem{title,value}`，value 为引擎包名；
+         * - HTTP 引擎的数字字符串（httpTTS id）。
+         *
+         * 返回 null 表示未设置（等价于默认系统 TTS）。
+         */
+        fun parse(raw: String?): ReadAloudEngineSelection? {
+            if (raw.isNullOrBlank()) return null
+            val obj = runCatching { GSON.fromJson(raw, JsonObject::class.java) }.getOrNull()
+            if (obj != null && obj.has("engineType")) {
+                return runCatching {
+                    GSON.fromJson(obj, ReadAloudEngineSelection::class.java)
+                }.getOrNull()
+            }
+            obj?.get("value")?.takeIf { it.isJsonPrimitive }?.asString
+                ?.takeIf(String::isNotBlank)?.let { value ->
+                    return ReadAloudEngineSelection(ReadAloudVoice.ENGINE_SYSTEM, value)
+                }
+            if (raw.all(Char::isDigit)) {
+                return ReadAloudEngineSelection(ReadAloudVoice.ENGINE_HTTP, raw)
+            }
+            return null
+        }
+
+        fun serialize(selection: ReadAloudEngineSelection): String = GSON.toJson(selection)
+    }
+}
 
 data class VoiceCatalogEntry(
     val engineType: String,

@@ -3020,7 +3020,6 @@
     <string name="cloud_tts_cloud_engines">云 TTS</string>
     <string name="cloud_tts_http_engines">HTTP 协议 TTS</string>
     <string name="cloud_tts_system_engines">系统 TTS</string>
-    <string name="cloud_tts_default_requires_voice">请先为该云 TTS 引擎保存至少一个音色，再设为默认引擎。</string>
     <string name="read_aloud_default_engine_updated">默认朗读引擎已更新</string>
     <string name="cloud_tts_delete_voice_message">删除音色预设“%1$s”？使用它的人物绑定将回退到其他音色。</string>
     <string name="cloud_tts_no_test_voice">厂商没有返回可用于测试的音色</string>
@@ -3038,15 +3037,8 @@
     <string name="cloud_tts_preview_playback_failed">试听播放失败</string>
     <string name="cloud_tts_add_engine">添加云引擎</string>
     <string name="cloud_tts_add_voice">添加音色预设</string>
-    <string name="cloud_tts_voices_tab">音色</string>
-    <string name="cloud_tts_engines_tab">引擎</string>
-    <string name="cloud_tts_choose_engine">选择引擎并添加音色</string>
     <string name="cloud_tts_select_voice">选择音色</string>
-    <string name="cloud_tts_saved_voices">已保存音色</string>
-    <string name="cloud_tts_no_saved_voices">尚未保存音色。先从上方选择一个引擎。</string>
     <string name="cloud_tts_engines">云 TTS 引擎</string>
-    <string name="cloud_tts_no_engines">尚未配置云 TTS 引擎</string>
-    <string name="cloud_tts_available_engines">可用朗读引擎</string>
     <string name="cloud_tts_copy_error">复制错误</string>
     <string name="cloud_tts_edit_engine">编辑云 TTS 引擎</string>
     <string name="cloud_tts_engine_name">引擎名称</string>
@@ -3060,9 +3052,6 @@
     <string name="cloud_tts_testing">测试中…</string>
     <string name="cloud_tts_connection_test">连接测试</string>
     <string name="cloud_tts_edit_voice">编辑音色预设</string>
-    <string name="cloud_tts_step_engine">1. 朗读引擎</string>
-    <string name="cloud_tts_select">选择</string>
-    <string name="cloud_tts_select_engine">选择引擎</string>
     <string name="cloud_tts_edit_voice_binding_notice">为保持人物绑定稳定，编辑时不能更换引擎和原生音色。</string>
     <string name="cloud_tts_step_voice">音色</string>
     <string name="cloud_tts_search_voice">搜索音色、语言或 ID</string>
@@ -3103,6 +3092,9 @@
     <string name="cloud_tts_voice_engine_unavailable">该音色使用的引擎当前不可用</string>
     <string name="cloud_tts_cannot_change_engine">编辑预设时不能更换引擎，请新建音色预设</string>
     <string name="cloud_tts_engine_default_voice">引擎默认音色</string>
+    <string name="cloud_tts_default_voice">默认音色</string>
+    <string name="read_aloud_scope_global">全局</string>
+    <string name="read_aloud_scope_book">本书</string>
     <string name="cloud_tts_voice_count">已获取 %1$d 个音色</string>
     <string name="cloud_tts_cannot_change_native_voice">编辑预设时不能更换原生音色，请新建音色预设</string>
     <string name="cloud_tts_select_provider">请选择云 TTS 厂商</string>

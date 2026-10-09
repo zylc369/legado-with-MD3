@@ -11,14 +11,10 @@ import io.legado.app.data.entities.HttpTTS
 import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.domain.model.readaloud.ReadAloudEngineSelection
 import io.legado.app.domain.model.readaloud.ReadAloudVoice
-import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.service.HttpReadAloudService
 import io.legado.app.service.TTSReadAloudService
-import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
-import io.legado.app.utils.StringUtils
-import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.startForegroundServiceCompat
 import io.legado.app.utils.toastOnUi
@@ -38,11 +34,10 @@ object ReadAloud {
         private set
 
     private fun getReadAloudClass(): Class<*> {
-        val ttsEngine = ttsEngine
-        GSON.fromJsonObject<ReadAloudEngineSelection>(ttsEngine).getOrNull()
-            ?.takeIf { it.engineType == ReadAloudVoice.ENGINE_CLOUD }
-            ?.let { selection ->
-                coordinatorDefaultEngineType = selection.engineType
+        val selection = ReadAloudEngineSelection.parse(ttsEngine)
+        when (selection?.engineType) {
+            ReadAloudVoice.ENGINE_CLOUD -> {
+                coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_CLOUD
                 coordinatorDefaultEngineId = selection.engineId
                 coordinatorDefaultSpeakerId = selection.speakerId
                 httpTTS = HttpTTS(
@@ -50,36 +45,29 @@ object ReadAloud {
                     name = selection.displayName.ifBlank { "Cloud TTS" })
                 return HttpReadAloudService::class.java
             }
-        if (ttsEngine.isNullOrBlank()) {
-            setSystemCoordinatorDefault(ttsEngine)
-            findCoordinatorHttpSeed()?.let {
-                httpTTS = it
-                return HttpReadAloudService::class.java
-            }
-            return TTSReadAloudService::class.java
-        }
-        if (StringUtils.isNumeric(ttsEngine)) {
-            httpTTS = appDb.httpTTSDao.get(ttsEngine.toLong())
-            if (httpTTS != null) {
-                coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_HTTP
-                coordinatorDefaultEngineId = ttsEngine
-                coordinatorDefaultSpeakerId = ""
-                return HttpReadAloudService::class.java
+
+            ReadAloudVoice.ENGINE_HTTP -> {
+                val http = selection.engineId.toLongOrNull()?.let(appDb.httpTTSDao::get)
+                if (http != null) {
+                    httpTTS = http
+                    coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_HTTP
+                    coordinatorDefaultEngineId = selection.engineId
+                    coordinatorDefaultSpeakerId = selection.speakerId
+                    return HttpReadAloudService::class.java
+                }
             }
         }
-        setSystemCoordinatorDefault(ttsEngine)
+        // 系统 TTS（含未设置/默认）
+        coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_SYSTEM
+        coordinatorDefaultEngineId =
+            selection?.takeIf { it.engineType == ReadAloudVoice.ENGINE_SYSTEM }?.engineId.orEmpty()
+        coordinatorDefaultSpeakerId =
+            selection?.takeIf { it.engineType == ReadAloudVoice.ENGINE_SYSTEM }?.speakerId.orEmpty()
         findCoordinatorHttpSeed()?.let {
             httpTTS = it
             return HttpReadAloudService::class.java
         }
         return TTSReadAloudService::class.java
-    }
-
-    private fun setSystemCoordinatorDefault(serializedEngine: String?) {
-        coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_SYSTEM
-        coordinatorDefaultEngineId = GSON.fromJsonObject<SelectItem<String>>(serializedEngine)
-            .getOrNull()?.value.orEmpty()
-        coordinatorDefaultSpeakerId = ""
     }
 
     private fun findCoordinatorHttpSeed(): HttpTTS? {
