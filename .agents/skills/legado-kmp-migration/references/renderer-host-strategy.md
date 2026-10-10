@@ -1,71 +1,66 @@
-# Renderer and Host Strategy
+# 渲染器与宿主策略
 
-Read this reference when a Feature may use more than one UI stack or when a non-Kotlin host consumes
-shared Kotlin behavior.
+当一个 Feature 可能使用多个 UI 技术栈，或非 Kotlin 宿主需要消费共享 Kotlin 行为时，阅读本参考。
 
-## Separate three decisions
+## 区分三个决策
 
-1. **Shared behavior:** domain, repositories, use cases, state snapshots, commands and reducers.
-2. **Host integration:** Gradle/JVM, Apple framework, Windows DLL/C ABI, or process/IPC.
-3. **Renderer:** Android Material/Miuix, Compose Material/Fluent, WinUI 3, SwiftUI/UIKit, or a
-   specialized platform island.
+1. **共享行为：** domain、repositories、use cases、state snapshots、commands 和 reducers。
+2. **宿主集成：** Gradle/JVM、Apple framework、Windows DLL/C ABI，或 process/IPC。
+3. **渲染器：** Android Material/Miuix、Compose Material/Fluent、WinUI 3、SwiftUI/UIKit，或
+   专门的平台孤岛。
 
-Do not infer one decision from another. A KMP core does not require CMP, and Compose on one host
-does
-not require every host to share the same Screen.
+不要从一个决策推断另一个决策。KMP core 并不要求 CMP，一个宿主上的 Compose 也
+不要求每个宿主共享同一个 Screen。
 
-## Renderer-neutral presentation
+## 渲染器无关的表现层
 
-Prefer immutable state snapshots, stable IDs, commands/intents, effects, domain values and explicit
-capability/error states. Keep Composable lambdas, `Modifier`, Material/Fluent types,
-`StringResource`, icons/painters, navigation UI objects, Android Context, Swift/WinRT objects, Room
-entities and DI containers out of the boundary.
+优先使用不可变 state snapshots、稳定 ID、commands/intents、effects、领域值和显式的
+capability/error states。将 Composable lambdas、`Modifier`、Material/Fluent 类型、
+`StringResource`、icons/painters、navigation UI 对象、Android Context、Swift/WinRT 对象、Room
+实体和 DI 容器排除在边界之外。
 
-`@Stable` belongs to a Compose-facing contract or adapter. If WinUI 3 or SwiftUI also consumes the
-state, keep the pure state free of renderer annotations and adapt it at the Compose boundary.
+`@Stable` 属于面向 Compose 的 contract 或 adapter。如果 WinUI 3 或 SwiftUI 也要消费
+state，则让纯 state 保持不含渲染器注解，并在 Compose 边界处适配它。
 
-## WinUI 3 choices
+## WinUI 3 的选择
 
-WinUI 3 cannot consume a Kotlin/JVM Gradle module like a Kotlin host. Choose the bridge explicitly.
+WinUI 3 不能像 Kotlin 宿主那样消费 Kotlin/JVM Gradle 模块。需显式选择桥接方式。
 
-### Kotlin/Native DLL and C ABI
+### Kotlin/Native DLL 与 C ABI
 
-Use a `mingwX64` shared library when in-process calls and one packaged process matter, and only when
-the required dependency closure supports the target.
+当进程内调用和单一打包进程很重要，且所需的依赖闭包支持该 target 时，使用 `mingwX64`
+共享库。
 
-- Export a small facade, not repositories, Flow, sealed hierarchies or generic Kotlin APIs.
-- Use opaque handles with explicit create/dispose.
-- Define ownership for every returned string or buffer.
-- Map async work to request IDs plus callbacks/polling; define callback thread and cancellation.
-- Version the ABI and compile a native consumer in CI.
-- Do not force JVM-only Room, Rhino or jsoup dependencies into the DLL; split a native-compatible
-  core or choose IPC for those capabilities.
+- 导出一个小的 facade，而非 repositories、Flow、sealed hierarchies 或泛型 Kotlin API。
+- 使用带显式 create/dispose 的不透明句柄。
+- 为每个返回的字符串或 buffer 定义所有权。
+- 将异步工作映射为 request IDs 加 callbacks/polling；定义 callback thread 与取消。
+- 对 ABI 进行版本管理，并在 CI 中编译 native 消费者。
+- 不要将 JVM-only 的 Room、Rhino 或 jsoup 依赖强行放入 DLL；为这些能力拆分一个
+  native-compatible core，或改用 IPC。
 
-### JVM sidecar and IPC
+### JVM sidecar 与 IPC
 
-Keep the existing JVM data/runtime stack in a separately packaged process and expose a versioned
-local protocol when reuse is more important than in-process integration.
+当复用比进程内集成更重要时，将现有的 JVM 数据/运行时栈保留在单独打包的进程中，并暴露一个
+带版本的本地协议。
 
-- Define protocol DTOs and version negotiation.
-- Define startup, readiness, shutdown, crash recovery and upgrade behavior.
-- Restrict local access; do not unintentionally expose an unauthenticated network service.
-- Propagate cancellation and structured errors.
-- Package and test both processes as one product.
+- 定义协议 DTO 和版本协商。
+- 定义启动、就绪、关闭、崩溃恢复和升级行为。
+- 限制本地访问；不要无意中暴露未认证的网络服务。
+- 传播取消和结构化错误。
+- 将两个进程作为一个产品打包并测试。
 
-Use one bounded read/write Feature to compare cold start, call latency, state mapping, database and
-runtime reuse, memory ownership, crash isolation, installer complexity and test ergonomics before
-choosing the product-wide bridge.
+在选定产品范围的桥接方式之前，先使用一个有界的读/写 Feature 比较冷启动、调用延迟、状态映射、
+数据库与运行时复用、内存所有权、崩溃隔离、安装器复杂度和测试易用性。
 
-## iOS native renderer
+## iOS native 渲染器
 
-Export a deliberately small Apple framework facade. SwiftUI may observe a tested shared state host
-or own an `ObservableObject` that calls shared repositories/use cases. Verify Swift names,
-optionality, collections, async/Flow bridging, lifecycle, cancellation and memory ownership with a
-Swift consumer test.
+导出一个刻意保持精简的 Apple framework facade。SwiftUI 可以观察一个经过测试的共享 state host，
+或拥有一个调用共享 repositories/use cases 的 `ObservableObject`。用 Swift 消费者测试验证 Swift
+名称、optionality、collections、async/Flow 桥接、生命周期、取消和内存所有权。
 
-## Selective CMP
+## 选择性 CMP
 
-Share a CMP Screen only when real hosts intentionally share its visual and interaction model.
-Resources and design-system components belong to that renderer. If Desktop uses WinUI 3 and iOS
-uses SwiftUI, Android Compose can remain an Android renderer even when its code is technically
-portable.
+只有当真实宿主有意共享其视觉与交互模型时，才共享一个 CMP Screen。
+资源和设计系统组件属于该渲染器。如果 Desktop 使用 WinUI 3、iOS
+使用 SwiftUI，那么即使 Android Compose 的代码在技术上可移植，它也可以继续作为 Android 渲染器。

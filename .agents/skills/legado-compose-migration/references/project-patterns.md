@@ -1,139 +1,99 @@
-# Legado Android Compose Project Patterns
+# Legado Android Compose 项目模式
 
-Read this reference while implementing a screen. Confirm every referenced API against the current
-checkout because the repository is mid-migration.
+在实现页面时阅读本参考。由于仓库正处于迁移过程中，请对照当前检出代码确认每一个引用的 API。
 
-## Ownership and placement
+## 归属与放置
 
-- Android application module: `:app`.
-- Canonical new Feature package: `io.legado.app.feature.<name>`.
-- `ui/...` is legacy/migration territory. Keep only explicit compatibility owners there after a
-  Feature establishes its canonical package.
-- `MainActivity` owns new in-app Navigation 3 destinations and the root graph.
-- A retained Activity translates stable external/legacy Intent inputs and results; it is not a
-  second presentation or navigation owner.
-- App-level Koin aggregation remains in the host. Use the repository's existing `viewModelOf` or
-  parameterized `viewModel` convention rather than adding a second DI pattern.
+- Android 应用模块：`:app`。
+- 规范的新 Feature 包：`io.legado.app.feature.<name>`。
+- `ui/...` 是遗留/迁移区域。在某个 Feature 建立其规范包之后，只保留明确的兼容性归属者。
+- `MainActivity` 拥有新的应用内 Navigation 3 目的地和根图。
+- 保留的 Activity 负责转换稳定的外部/遗留 Intent 输入与结果；它不是第二个展示或导航归属者。
+- 应用级 Koin 聚合保留在宿主中。使用仓库现有的 `viewModelOf` 或参数化 `viewModel` 约定，而不是新增第二种 DI 模式。
 
-A Feature may contain Contract, ViewModel, Route, Screen, components, dialogs, sheets and
-presentation models, but create only the files its behavior needs. Directory shape is not an
-acceptance criterion.
+一个 Feature 可以包含 Contract、ViewModel、Route、Screen、组件、对话框、底部表单和展示模型，但只创建其行为所需的文件。目录形态不是验收标准。
 
-## State and effects
+## 状态与副作用
 
-For a behavior-heavy new screen, the repository expects:
+对于行为复杂的新页面，仓库期望：
 
-- `@Stable` Compose-facing `UiState` and UI item models;
-- immutable collections at the Compose rendering boundary;
-- private `MutableStateFlow`, exposed as read-only `StateFlow`;
-- when best-effort transient effects are actually needed, private
-  `MutableSharedFlow(extraBufferCapacity = 16)`, exposed as read-only `SharedFlow`;
-- one `onIntent` dispatcher for user actions;
-- host actions expressed as effects or callbacks.
+- `@Stable` 的面向 Compose 的 `UiState` 和 UI item 模型；
+- Compose 渲染边界处的不可变集合；
+- 私有 `MutableStateFlow`，对外暴露为只读 `StateFlow`；
+- 当确实需要尽力而为的瞬时副作用时，使用私有
+  `MutableSharedFlow(extraBufferCapacity = 16)`，对外暴露为只读 `SharedFlow`；
+- 单一 `onIntent` 分发器处理用户动作；
+- 宿主动作表达为副作用或回调。
 
-`@Stable` is an assertion, not a magic optimization. Every public property must remain stable and
-changes observed by Compose. Wrap unstable data only when the wrapper has correct equality and
-mutation semantics. Use measurement/compiler reports before inventing performance abstractions.
+`@Stable` 是一种断言，而非魔法优化。每个公开属性都必须保持稳定并且其变化能被 Compose 观察到。仅在包装器具有正确的相等性和变更语义时才包装不稳定数据。在发明性能抽象之前，先使用度量/编译器报告。
 
-Keep source-of-truth business state in the ViewModel. Local `remember`/`rememberSaveable` is
-suitable
-for UI affordances and restorable drafts/IDs, not a second copy of repository state. Avoid
-UI-to-ViewModel feedback loops; restore consistency in the reducer or flow that produces the state.
+将作为事实来源的业务状态保留在 ViewModel 中。局部 `remember`/`rememberSaveable` 适用于
+UI 可供性以及可恢复的草稿/ID，而不是仓库状态的第二份副本。避免 UI 到 ViewModel 的反馈循环；在产出状态的 reducer 或 flow 中恢复一致性。
 
-Classify host actions by delivery semantics:
+按投递语义对宿主动作分类：
 
-- A user click whose only meaning is UI navigation can call a host callback directly; use a
-  lifecycle-aware rapid-click guard such as `dropUnlessResumed` where the available Lifecycle
-  version supports it.
-- A ViewModel outcome that must survive a missing collector becomes state with an acknowledgement
-  or another explicit durable protocol.
-- Snackbar/toast/haptic feedback that is intentionally best-effort may use the Feature effect
-  stream. Document the loss behavior rather than assuming `extraBufferCapacity` solves it.
+- 用户点击的唯一含义是 UI 导航时，可以直接调用宿主回调；在可用的 Lifecycle 版本支持时使用生命周期感知的快速点击防护，例如 `dropUnlessResumed`。
+- 必须能在缺失收集器的情况下存活的 ViewModel 结果，应变为带确认机制或另一种显式持久协议的状态。
+- 有意为之的尽力而为的 Snackbar/toast/触觉反馈可以使用 Feature 副作用流。记录其丢失行为，而不是假设 `extraBufferCapacity` 就解决了问题。
 
-## Host boundaries
+## 宿主边界
 
-Keep these at the route/host unless the project already has a tested abstraction:
+除非项目已有经过测试的抽象，否则将以下内容保留在 route/host：
 
-- navigation and result delivery;
-- permission and Activity Result launchers;
-- file/document pickers;
-- Android framework dialogs and services;
-- Context-dependent clipboard, URI and external-app operations.
+- 导航和结果投递；
+- 权限和 Activity Result 启动器；
+- 文件/文档选择器；
+- Android 框架对话框和服务；
+- 依赖 Context 的剪贴板、URI 和外部应用操作。
 
-Reusable Screen functions receive state and semantic callbacks. They do not know an Activity,
-binding, DAO, application singleton or root back stack.
+可复用的 Screen 函数接收状态和语义回调。它们不知道 Activity、binding、DAO、应用单例或根回退栈。
 
-## Lists, lifecycle and recomposition
+## 列表、生命周期与重组
 
-- Use stable keys when item identity survives insertion, removal or reorder; use `contentType` when
-  heterogeneous reuse matters.
-- Collect Android route state with `collectAsStateWithLifecycle` unless another lifecycle is
-  deliberate and documented. Apply the same delivery analysis to effect collectors; composition
-  lifetime and host `RESUMED` state are not interchangeable.
-- Key `LaunchedEffect` by the lifetime it represents. Use `rememberUpdatedState` for changing
-  callbacks captured by an effect that should not restart.
-- Derive cheap display values in composition; memoize or move work only when its cost/lifetime
-  warrants it.
-- Prefer immutable Compose-facing collections, while leaving temporary computations and data-layer
-  APIs in their natural collection types.
-- Strong Skipping is enabled by default on modern Kotlin/Compose compiler versions. Unstable
-  parameters are compared by identity, so avoid needless instance churn, but do not add wrappers or
-  `@Stable` solely from intuition. The repository requires the annotation on UI state/item types;
-  those types must actually satisfy its equality and observable-mutation contract.
+- 当 item 身份在插入、移除或重排后仍然保留时使用稳定 key；当异构复用重要时使用 `contentType`。
+- 使用 `collectAsStateWithLifecycle` 收集 Android route 状态，除非刻意且有文档说明地使用其他生命周期。对副作用收集器应用相同的投递分析；组合生命周期和宿主 `RESUMED` 状态不可互换。
+- 按 `LaunchedEffect` 所代表的生命周期为其设置 key。对不应重启的副作用所捕获的会变化的回调，使用 `rememberUpdatedState`。
+- 在组合中派生廉价的展示值；仅当其成本/生命周期值得时才记忆化或搬移工作。
+- 优先使用面向 Compose 的不可变集合，同时让临时计算和数据层 API 保持其自然的集合类型。
+- 在现代 Kotlin/Compose 编译器版本上，Strong Skipping 默认启用。不稳定参数按身份比较，因此避免不必要的实例抖振，但不要仅凭直觉添加包装器或 `@Stable`。仓库要求在 UI 状态/类型上使用该注解；这些类型必须真正满足其相等性和可观察变更契约。
 
-## Insets and back
+## Insets 与返回
 
-Trace which layer owns each inset. For a Material 3 `Scaffold`, inspect its configured
-`contentWindowInsets` and verify that content applies/consumes the provided padding correctly.
-Sheets, dialogs, IME and nested scaffolds may need separate treatment. Visual/manual evidence is
-required; the presence of `Scaffold`, `safeDrawing` or padding modifiers alone proves nothing.
+追踪每一层拥有哪个 inset。对于 Material 3 `Scaffold`，检查其配置的
+`contentWindowInsets`，并验证内容正确地应用/消费所提供的 padding。底部表单、对话框、IME 和嵌套 scaffold 可能需要单独处理。需要视觉/手工证据；仅仅存在 `Scaffold`、`safeDrawing` 或 padding 修饰符并不能证明任何东西。
 
-Navigation 3 integration does not remove the need to verify custom back interception, selection
-mode, unsaved changes and retained Activity entry points. Route back actions through the same owner
-that decides whether leaving is allowed. Use `PredictiveBackHandler` when gesture progress drives
-UI;
-when customizing `NavDisplay` transitions, also supply/test predictive-pop behavior.
+Navigation 3 集成并不能免除验证自定义返回拦截、选择模式、未保存更改和保留的 Activity 入口点的需要。将返回动作路由到同一归属者，由它决定是否允许离开。当手势进度驱动 UI 时使用 `PredictiveBackHandler`；
+在自定义 `NavDisplay` 转场时，还要提供/测试预测性弹出行为。
 
-## Adaptive layouts and accessibility
+## 自适应布局与无障碍
 
-Because this app targets API 37, large-screen orientation, aspect-ratio and resizability
-restrictions
-cannot be used as a compatibility fallback. Treat the current app window as dynamic across rotation,
-fold/unfold, split-screen and desktop windowing.
+由于此应用以 API 37 为目标，大屏方向、宽高比和可调整大小限制不能用作兼容性回退。将当前应用窗口视为在旋转、折叠/展开、分屏和桌面窗口化下都是动态的。
 
-- Test compact and expanded widths for new or substantially migrated destinations.
-- Use current window metrics/window size classes for layout decisions; do not branch on a physical
-  device category or assume portrait.
-- Preserve important input/draft/selection state across recreation with the appropriate local
-  saveable state or `SavedStateHandle`, based on the state owner and size.
-- Do not stretch a phone layout indefinitely. Adopt list-detail/supporting panes or adaptive
-  navigation only when the Feature benefits; avoid adding a library merely to satisfy a checklist.
-- Prefer standard interactive components/modifiers. Custom pointer input needs semantic actions,
-  focus/keyboard access and a usable touch target.
+- 对新的或大幅迁移的目的地，测试紧凑和扩展宽度。
+- 使用当前窗口度量/窗口尺寸类来做布局决策；不要基于物理设备类别分支或假设竖屏。
+- 使用合适的局部可保存状态或 `SavedStateHandle` 在重建时保留重要的输入/草稿/选择状态，具体取决于状态归属者和大小。
+- 不要无限制拉伸手机布局。仅当 Feature 受益时才采用列表-详情/支持性窗格或自适应导航；避免仅为满足清单而添加库。
+- 优先使用标准交互组件/修饰符。自定义指针输入需要语义动作、焦点/键盘访问和可用的触摸目标。
 
-## Architecture boundary
+## 架构边界
 
-New UI and ViewModels do not add DAO, `appDb`, network-client or old preference access. Use existing
-Gateway/Repository/UseCase contracts, or add the smallest real boundary with an actual caller.
+新的 UI 和 ViewModel 不新增 DAO、`appDb`、网络客户端或旧偏好访问。使用现有的
+Gateway/Repository/UseCase 契约，或添加带有真实调用方的最小真实边界。
 
-For a strictly UI-only migration, an existing presentation-layer violation may remain to avoid
-combining architecture and UI rewrites. Freeze rather than duplicate it, document it, and do not
-describe the screen as fully modernized until the boundary is corrected.
+对于严格仅为 UI 的迁移，可以保留现有的展示层违规以避免将架构重写与 UI 重写合并。冻结而非复制它，为其建立文档，在边界被更正之前不要将该页面描述为已完全现代化。
 
-## Verification selection
+## 验证选择
 
-- Kotlin-only: `:app:compileAppDebugKotlin`.
-- Resources/manifest/XML/generated binding/package: `:app:assembleAppDebug`.
-- Changed state transitions: focused unit tests with success/failure/cancellation cases as relevant.
-- Navigation or compatibility: exercise the MainActivity route and every retained Intent/result
-  entry.
-- Insets, IME, accessibility and predictive back: device/emulator evidence where risk warrants it.
-- New/substantially changed destinations: representative compact and expanded window checks plus
-  rotation/recreation; add targeted adaptive UI tests when layout branching is meaningful.
+- 仅 Kotlin：`:app:compileAppDebugKotlin`。
+- 资源/清单/XML/生成的绑定/打包：`:app:assembleAppDebug`。
+- 变更的状态转换：视情况使用带成功/失败/取消用例的聚焦单元测试。
+- 导航或兼容性：演练 MainActivity route 以及每个保留的 Intent/result 入口。
+- Insets、IME、无障碍和预测性返回：在风险需要时提供设备/模拟器证据。
+- 新增/大幅变更的目的地：代表性的紧凑与扩展窗口检查，加上旋转/重建；当布局分支有意义时添加有针对性的自适应 UI 测试。
 
-Use `AGENTS.md` for the canonical full verification set and exact wrapper command.
+使用 `AGENTS.md` 获取规范化的完整验证集和精确的包装命令。
 
-## Current official references
+## 当前官方参考
 
 - [State hoisting](https://developer.android.com/develop/ui/compose/state-hoisting)
 - [Lifecycle-aware Compose collection](https://developer.android.com/topic/libraries/architecture/lifecycle)
