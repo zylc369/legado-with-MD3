@@ -205,6 +205,10 @@ class App : Application(), SingletonImageLoader.Factory {
         Coroutine.async {
             LogUtils.init(this@App)
             LogUtils.d("App", "onCreate")
+            // remote-link P2P 网关（未配置/未启用 = 零开销不监听）
+            runCatching {
+                com.opensecurity.remotelink.gateway.RemoteLinkManager.init(this@App)
+            }.onFailure { LogUtils.d("App", "remote-link init: ${it.message}") }
             LogUtils.logDeviceInfo()
             //预下载Cronet so
             Cronet.preDownload()

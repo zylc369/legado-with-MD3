@@ -548,6 +548,11 @@ fun MainActivity.mainEntryProvider(
     }
 
     entry<MainRouteSettings> {
+        val remoteLinkCtx = androidx.compose.ui.platform.LocalContext.current
+        val onClickRemoteLink: () -> Unit = {
+            remoteLinkCtx.startActivity(android.content.Intent(
+                remoteLinkCtx, com.opensecurity.remotelink.ui.ConfigActivity::class.java))
+        }
         ConfigNavScreen(
             onBackClick = { onNavigateBack() },
             onNavigateToOther = { backStack.add(MainRouteSettingsOther) },
@@ -559,7 +564,8 @@ fun MainActivity.mainEntryProvider(
             onNavigateToDownloadCache = { backStack.add(MainRouteSettingsDownloadCache) },
             onNavigateToTranslation = { backStack.add(MainRouteSettingsTranslation) },
             onNavigateToLab = { backStack.add(MainRouteSettingsLabConfig) },
-            onNavigateToPrivate = { backStack.add(MainRouteSettingsPrivate) }
+            onNavigateToPrivate = { backStack.add(MainRouteSettingsPrivate) },
+            onNavigateToRemoteLink = onClickRemoteLink
         )
     }
 

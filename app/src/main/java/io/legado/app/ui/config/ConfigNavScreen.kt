@@ -30,7 +30,8 @@ fun ConfigNavScreen(
     onNavigateToDownloadCache: () -> Unit,
     onNavigateToTranslation: () -> Unit,
     onNavigateToLab: () -> Unit,
-    onNavigateToPrivate: () -> Unit
+    onNavigateToPrivate: () -> Unit,
+    onNavigateToRemoteLink: () -> Unit = {}
 ) {
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
 
@@ -82,6 +83,10 @@ fun ConfigNavScreen(
                     ClickableSettingItem(
                         title = stringResource(R.string.ai_config),
                         onClick = onNavigateToAi
+                    )
+                    ClickableSettingItem(
+                        title = "RemoteLink 朗读",
+                        onClick = onNavigateToRemoteLink
                     )
                     ClickableSettingItem(
                         title = stringResource(R.string.translation_config),

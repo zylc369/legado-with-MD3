@@ -526,6 +526,9 @@
         <meta-data
             android:name="channel"
             android:value="${APP_CHANNEL_VALUE}" />
+            <activity android:name="com.opensecurity.remotelink.ui.ConfigActivity"
+            android:label="RemoteLink 设置"
+            android:exported="true" />
     </application>
 
     <queries>
