@@ -50,6 +50,7 @@ import io.legado.app.BuildConfig
 import io.legado.app.R
 import io.legado.app.base.BaseComposeActivity
 import io.legado.app.constant.AppConst.appInfo
+import io.legado.app.constant.AppLog
 import io.legado.app.core.ui.player.playerUnderlaySemantics
 import io.legado.app.data.repository.ReadAloudSettingsRepository
 import io.legado.app.domain.gateway.BackupSettingsGateway
@@ -340,6 +341,13 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
         installSplashScreen()
         shouldApplyDefaultToRead = savedInstanceState == null
         restoredReadBookRoute = savedInstanceState?.restoreReadBookRoute()
+        // 页面被系统回收后重建时 savedInstanceState 非空；这里记录一次，便于定位
+        // "切出去一段时间回来"类问题（阅读高亮/朗读状态丢失等）。
+        AppLog.putDebug(
+            "MainActivity.onCreate recreated=${savedInstanceState != null}" +
+                " restoredReadRoute=${restoredReadBookRoute?.bookUrl}" +
+                " readAloud=${restoredReadBookRoute?.readAloud}"
+        )
         super.onCreate(savedInstanceState)
 
         if (checkStartupRoute()) return

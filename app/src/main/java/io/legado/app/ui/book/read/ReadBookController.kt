@@ -360,7 +360,6 @@ class ReadBookController(
     private var composeSelection: ReaderSelection? = null
     private var searchSelection: ReaderSelection? = null
     private var pendingSearchNavigation: ReadBookEffect.NavigateToSearchResult? = null
-    private var readAloudPosition: Pair<Int, Int>? = null
     private var composeVisibleBodyTextPositionProvider: (() -> ReaderVisibleTextPosition?)? = null
     private var composeImageClickAt = 0L
     private var composeImageDoubleClick = false
@@ -775,6 +774,20 @@ class ReadBookController(
         publishReaderPageWindow()
     }
 
+    /**
+     * 朗读高亮锚点：直接取自进程级的朗读服务当前进度，不在 UI 侧自持状态。
+     *
+     * 页面 / 控制器 / ViewModel 被系统回收重建后，高亮无需"恢复状态"——窗口重建时读到的
+     * 就是服务正在朗读的位置；服务停止后 [BaseReadAloudService.isRun] 为 false，高亮自然消失。
+     * 暂停时仍保留高亮（isRun 仍为 true），与"暂停不改高亮、停止才清"的既有语义一致。
+     */
+    private fun readAloudHighlightPosition(): Pair<Int, Int>? {
+        if (!BaseReadAloudService.isRun) return null
+        val chapterIndex = BaseReadAloudService.currentChapterIndex
+        if (chapterIndex < 0) return null
+        return chapterIndex to BaseReadAloudService.currentProgress.coerceAtLeast(0)
+    }
+
     private fun directReaderWindow(index: Int): ReaderPageWindow {
         // 旧 View 的取页器在 `pageSource.msg != null` 时把 cur/prev/next/nextPlus 全换成消息页
         // （`TextPageFactory.kt:93-131`）：正文让位，页眉页脚照旧。这里同样整窗替换，消息因此
@@ -796,7 +809,7 @@ class ReadBookController(
         val streamingChapter = window.current?.id?.chapterIndex
             ?.takeIf { it in directReaderStreamingChapters }
         val selection = searchSelection
-        val aloudPosition = readAloudPosition
+        val aloudPosition = readAloudHighlightPosition()
         val aloudParagraphIndex = aloudPosition?.let { (chapterIndex, chapterPosition) ->
             ReaderPageNavigator.bodyParagraphAt(directReaderPages, chapterIndex, chapterPosition)
         }
@@ -1057,9 +1070,8 @@ class ReadBookController(
         // 旧 View 每次翻页的其余副作用（阅读时长 / 预下载 / 进度落库）必须在，否则崩溃回到
         // 上次切章位置、静读时长不计、邻章预取推迟。
         ReadBook.onComposeManualPageCommitted()
-        if (BaseReadAloudService.isRun && ReadBook.onComposeManualPageTurn()) {
-            readAloudPosition = page.id.chapterIndex to chapterPosition
-        }
+        // 翻页后朗读若跟随重启，服务会立刻上报新进度；高亮直接由服务状态派生，无需在此自持锚点。
+        ReadBook.onComposeManualPageTurn()
     }
 
     fun seekComposeChapterPage(chapterPageIndex: Int): Boolean {
@@ -2148,7 +2160,7 @@ class ReadBookController(
     override fun contentLoadFinish() {
         viewModel.markInitFinished()
         handler.post {
-            viewModel.readAloudProgress.value?.let(::updateReadAloudProgress)
+            if (viewModel.readAloudProgress.value != null) refreshReadAloudHighlight()
             onStartContentLoadFinish?.invoke()
         }
     }
@@ -2292,7 +2304,7 @@ class ReadBookController(
             is ReadBookEffect.UpTextSelectAble -> Unit
 
             is ReadBookEffect.UpAloudState -> {
-                readAloudPosition = null
+                // 高亮由朗读服务状态派生；服务停止后 isRun=false，重发布一次即可让高亮消失。
                 directReaderPageIndex?.let(::publishDirectReaderWindow)
             }
 
@@ -2417,16 +2429,20 @@ class ReadBookController(
         }
     }
 
-    fun updateReadAloudProgress(chapterStart: Int) {
-        if (!BaseReadAloudService.isPlay()) return
-        // 只更新朗读高亮锚点。可见页的移动由朗读服务驱动（moveToReadAloudPage →
-        // moveToNextPage → upContent）与用户导航负责；这里若再按朗读位置 locate
-        // 回迁可见页，进入阅读器时会把页面先拉回朗读所在的上一段（跨页段落的
-        // locate 落在段落起始页），随后 curPageChanged 的跟随重启又跳回当前页。
-        val anchor = BaseReadAloudService.currentChapterIndex to chapterStart
-        if (readAloudPosition == anchor) return
-        readAloudPosition = anchor
-        // 高亮在窗口发布时才计算绘制（directReaderWindow），锚点变化后必须重发布
+    /**
+     * 朗读进度推进时触发一次窗口重发布，让高亮跟随朗读移动。
+     *
+     * 高亮位置不在这里自持——[directReaderWindow] 直接读取进程级的朗读服务当前进度
+     * （[BaseReadAloudService.currentChapterIndex] / [BaseReadAloudService.currentProgress]）。
+     * 这样页面 / 控制器 / ViewModel 被系统回收重建后，高亮无需"恢复状态"：窗口重建时读到的
+     * 就是服务正在朗读的位置。
+     *
+     * 可见页的移动由朗读服务驱动（moveToReadAloudPage → moveToNextPage → upContent）与用户
+     * 导航负责；这里若再按朗读位置 locate 回迁可见页，进入阅读器时会把页面先拉回朗读所在的
+     * 上一段（跨页段落的 locate 落在段落起始页），随后 curPageChanged 的跟随重启又跳回当前页。
+     */
+    fun refreshReadAloudHighlight() {
+        if (!BaseReadAloudService.isRun) return
         directReaderPageIndex?.let(::publishDirectReaderWindow)
     }
 

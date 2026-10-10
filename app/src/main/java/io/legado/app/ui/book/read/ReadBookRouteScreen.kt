@@ -250,7 +250,8 @@ fun ReadBookRouteScreen(
     LaunchedEffect(viewModel, controller, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             viewModel.readAloudProgress.collect { chapterStart ->
-                chapterStart?.let(controller::updateReadAloudProgress)
+                // 高亮锚点由控制器直接从朗读服务派生；进度推进时只触发一次窗口重发布。
+                if (chapterStart != null) controller.refreshReadAloudHighlight()
             }
         }
     }

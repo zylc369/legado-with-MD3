@@ -70,7 +70,6 @@ import io.legado.app.model.ReadBook
 import io.legado.app.model.ReaderSession
 import io.legado.app.model.ReaderSessionEvent
 import io.legado.app.model.SourceCallBack
-import io.legado.app.model.activeReadAloudProgress
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setChapter
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
@@ -160,12 +159,10 @@ class ReadBookViewModel(
     @Volatile private var composePageContext: ReaderPageContext? = null
     private var composeProgressJob: Job? = null
     private var readBookSyncJob: Job? = null
-    private val _readAloudProgress = MutableStateFlow(
-        activeReadAloudProgress(
-            isPlaying = BaseReadAloudService.isPlay(),
-            currentProgress = BaseReadAloudService.currentProgress,
-        )
-    )
+    // 只作"朗读进度推进"的触发信号：高亮位置由控制器直接从朗读服务派生
+    // （见 ReadBookController.readAloudHighlightPosition），不再从服务静态量恢复进度，
+    // 避免页面/ViewModel 重建后再走一条多余的"状态恢复"路径。
+    private val _readAloudProgress = MutableStateFlow<Int?>(null)
     val readAloudProgress = _readAloudProgress.asStateFlow()
     private suspend fun emitEffectWhenSubscribed(effect: ReadBookEffect) {
         _effects.subscriptionCount.first { it > 0 }
@@ -613,6 +610,15 @@ class ReadBookViewModel(
     }
 
     init {
+        // 记录 ViewModel 重建时的朗读服务/会话状态，配合 MainActivity.onCreate 的
+        // recreated 日志定位"切出去一段时间回来"后朗读高亮丢失的问题。
+        AppLog.putDebug(
+            "ReadBookViewModel.init readAloudRunning=${BaseReadAloudService.isRun}" +
+                " paused=${BaseReadAloudService.pause}" +
+                " chapter=${BaseReadAloudService.currentChapterIndex}" +
+                " progress=${BaseReadAloudService.currentProgress}" +
+                " session=${readAloudSessionStore.state.value.status}"
+        )
         // 订阅必须早于 attach()：会话事件用 tryEmit 投递，没有订阅者会被丢弃。
         // viewModelScope 是 Main.immediate，VM 在主线程构造，故 launch 会同步跑到
         // collect 的挂起点——本行返回时订阅者已注册。
@@ -2591,6 +2597,10 @@ class ReadBookViewModel(
     }
 
     override fun onCleared() {
+        AppLog.putDebug(
+            "ReadBookViewModel.onCleared readAloudRunning=${BaseReadAloudService.isRun}" +
+                " paused=${BaseReadAloudService.pause}"
+        )
         super.onCleared()
         if (BaseReadAloudService.isRun && BaseReadAloudService.pause) {
             ReadAloud.stop(context)
