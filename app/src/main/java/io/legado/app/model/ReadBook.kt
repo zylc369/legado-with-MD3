@@ -773,7 +773,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     }
 
     fun hasReadingAnchor(): Boolean =
-        ReadBookConfig.readingAnchorEnabled && lastBookProgress != null && readingAnchorJumpCount >= 2
+        ReadBookConfig.readingAnchorEnabled && lastBookProgress != null && readingAnchorJumpCount >= 1
 
     fun discardReadingAnchor() {
         lastBookProgress = null

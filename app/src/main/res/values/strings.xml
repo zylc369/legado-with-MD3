@@ -387,6 +387,7 @@
     <string name="bookmark_add">Add to Bookmarks</string>
     <string name="bookmark_added">Bookmark added</string>
     <string name="bookmark_removed">Bookmark removed</string>
+    <string name="bookmark_jump_to_position">Go to bookmark</string>
     <string name="swipe_to_add_bookmark">Swipe down to add bookmark</string>
     <string name="bookmark_swipe_release_to_add">Release to add bookmark</string>
     <string name="bookmark_swipe_release_to_remove">Release to remove bookmark</string>
@@ -2651,7 +2652,7 @@
     <string name="auto_switch_theme_reminder_title">Theme Mode Switch Reminder</string>
     <string name="auto_switch_theme_reminder_desc">Remind to switch light/dark mode based on ambient light</string>
     <string name="reading_anchor">Reading anchor</string>
-    <string name="reading_anchor_summary">Show a floating button to return to the original reading position after jumping chapters twice or more</string>
+    <string name="reading_anchor_summary">Show a floating button to return to the original reading position after jumping chapters</string>
     <string name="read_aloud_detach_reminder">Read-aloud detach reminder</string>
     <string name="read_aloud_detach_reminder_summary">When enabled, shows a button to return to the speaking position after the page leaves it; when disabled, read-aloud follows manual page turns</string>
     <string name="switch_to_dark_mode_tip">Ambient light is low. Switch to dark mode?</string>

@@ -357,6 +357,7 @@
     <string name="bookmark_add">添加书签</string>
     <string name="bookmark_added">已添加书签</string>
     <string name="bookmark_removed">已取消书签</string>
+    <string name="bookmark_jump_to_position">跳转到书签位置</string>
     <string name="swipe_to_add_bookmark">下滑添加书签</string>
     <string name="bookmark_swipe_release_to_add">松手以添加书签</string>
     <string name="bookmark_swipe_release_to_remove">松手以取消书签</string>
@@ -2647,7 +2648,7 @@
     <string name="auto_switch_theme_reminder_title">主题模式切换提醒</string>
     <string name="auto_switch_theme_reminder_desc">根据环境光提醒切换浅色/深色模式</string>
     <string name="reading_anchor">阅读锚点</string>
-    <string name="reading_anchor_summary">跳转章节两次及以上后，显示返回原阅读位置的悬浮按钮</string>
+    <string name="reading_anchor_summary">跳转章节后，显示返回原阅读位置的悬浮按钮</string>
     <string name="read_aloud_detach_reminder">朗读脱离提示</string>
     <string name="read_aloud_detach_reminder_summary">开启时朗读位置离开当前页会显示"回到朗读位置"悬浮按钮；关闭时手动翻页后朗读跟随新页面</string>
     <string name="switch_to_dark_mode_tip">当前环境光较暗，是否切换至深色模式？</string>

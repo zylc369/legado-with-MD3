@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Refresh
@@ -1264,6 +1265,7 @@ private fun ReaderSheetBookmarkList(
             ReaderSheetBookmarkItem(
                 item = bookmark,
                 onClick = { onEditBookmark(bookmark.raw) },
+                onNavigate = { onBookmarkNavigate(bookmark.raw) },
                 onLongClick = {
                     onBookmarkNavigate(bookmark.raw)
                 },
@@ -1277,6 +1279,7 @@ private fun ReaderSheetBookmarkList(
 private fun ReaderSheetBookmarkItem(
     item: TocBookmarkItemUi,
     onClick: () -> Unit,
+    onNavigate: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1299,44 +1302,60 @@ private fun ReaderSheetBookmarkItem(
         contentColor = contentColor,
         modifier = modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        Row(
+            modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppText(
-                    text = item.chapterName,
-                    style = LegadoTheme.typography.labelMediumEmphasized,
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (item.isDur) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(16.dp),
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AppText(
+                        text = item.chapterName,
+                        style = LegadoTheme.typography.labelMediumEmphasized,
+                        color = contentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (item.isDur) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = contentColor,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+                if (item.raw.bookText.isNotBlank()) {
+                    AppText(
+                        text = item.raw.bookText,
+                        style = LegadoTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.78f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (item.content.isNotBlank()) {
+                    AppText(
+                        text = item.content,
+                        style = LegadoTheme.typography.labelMedium,
+                        color = LegadoTheme.colorScheme.primary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            if (item.raw.bookText.isNotBlank()) {
-                AppText(
-                    text = item.raw.bookText,
-                    style = LegadoTheme.typography.bodyMedium,
-                    color = contentColor.copy(alpha = 0.78f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (item.content.isNotBlank()) {
-                AppText(
-                    text = item.content,
-                    style = LegadoTheme.typography.labelMedium,
-                    color = LegadoTheme.colorScheme.primary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+            IconButton(
+                onClick = onNavigate,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MyLocation,
+                    contentDescription = stringResource(R.string.bookmark_jump_to_position),
+                    tint = contentColor,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
