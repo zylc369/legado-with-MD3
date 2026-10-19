@@ -3,6 +3,8 @@ package com.opensecurity.customtts.model
 /** 定制引擎的合成参数（对应服务端 /api/tts 请求体）。 */
 data class CustomTtsVoiceParams(
     val voiceId: String = "",
+    /** 展示名（服务端音色目录 name；空则用 voiceId）。 */
+    val displayName: String = "",
     val speed: Float = 1.0f,
     val instruct: String = "",
     val seed: Int = -1,

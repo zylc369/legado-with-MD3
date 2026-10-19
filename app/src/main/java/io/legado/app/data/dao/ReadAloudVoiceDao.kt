@@ -52,6 +52,9 @@ interface ReadAloudVoiceDao {
         subjectId: String,
     ): BookVoiceBindingEntity?
 
+    @Query("select count(*) from book_voice_bindings where voiceId = :voiceId")
+    suspend fun countBindingsForVoice(voiceId: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBinding(binding: BookVoiceBindingEntity)
 

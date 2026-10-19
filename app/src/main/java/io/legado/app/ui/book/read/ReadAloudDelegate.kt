@@ -9,6 +9,7 @@ import io.legado.app.data.repository.ReadAloudSettingsRepository
 import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.domain.model.readaloud.ReadAloudVoice
 import io.legado.app.domain.model.readaloud.VoiceCatalogEntry
+import io.legado.app.domain.gateway.CustomTtsSettingsGateway
 import io.legado.app.domain.model.settings.ReadAloudSettings
 import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.domain.usecase.SyncReadAloudVoicesUseCase
@@ -86,6 +87,12 @@ class ReadAloudDelegate(
         systemTtsLabel: String = context.getString(R.string.system_tts),
         httpTtsList: List<HttpTTS> = httpTtsRepository.getAllSync(),
     ) {
+        // 定制引擎的 voice 级音色必须纳入同一批同步——否则 removeMissingEngineTypes
+        // 会把它们当作"已删除的 HTTP 音色"清掉（GlobalContext 取法与 ReadAloud.kt 一致）
+        val customSettings = runCatching {
+            org.koin.core.context.GlobalContext.get()
+                .get<CustomTtsSettingsGateway>().currentSettings
+        }.getOrNull()
         syncReadAloudVoicesUseCase(
             entries = buildList {
                 add(
@@ -111,6 +118,17 @@ class ReadAloudDelegate(
                             engineId = httpTts.id.toString(),
                             displayName = httpTts.name,
                             sourceRevision = httpTts.lastUpdateTime,
+                        )
+                    )
+                }
+                customSettings?.voices?.forEach { (voiceId, params) ->
+                    add(
+                        VoiceCatalogEntry(
+                            engineType = ReadAloudVoice.ENGINE_HTTP,
+                            engineId = com.opensecurity.customtts.model.CustomTtsCatalog.ENGINE_ID.toString(),
+                            speakerId = voiceId,
+                            displayName = params.displayName.ifEmpty { voiceId },
+                            traitsJson = io.legado.app.utils.GSON.toJson(params),
                         )
                     )
                 }

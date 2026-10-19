@@ -48,6 +48,20 @@ class CustomTtsParamsTest {
     }
 
     @Test
+    fun `音色名称长度`() {
+        assertTrue(
+            CustomTtsParams.validate(
+                CustomTtsVoiceParams(displayName = "名".repeat(64))
+            ).isSuccess
+        )
+        assertTrue(
+            CustomTtsParams.validate(
+                CustomTtsVoiceParams(displayName = "名".repeat(65))
+            ).isFailure
+        )
+    }
+
+    @Test
     fun `请求体字段与服务端对齐`() {
         val params = CustomTtsVoiceParams(
             voiceId = "spk1", speed = 1.2f, instruct = "轻声", seed = 7, mode = "instruct",

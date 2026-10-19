@@ -67,6 +67,8 @@ import io.legado.app.data.repository.LocalBookRepository
 import io.legado.app.data.repository.LocalPasswordRepository
 import io.legado.app.data.repository.MangaSettingsRepository
 import io.legado.app.data.repository.OtherConfigSystemRepository
+import io.legado.app.data.repository.CustomTtsCatalogRepository
+import io.legado.app.data.repository.CustomTtsSettingsRepository
 import io.legado.app.data.repository.OtherSettingsRepository
 import io.legado.app.data.repository.PrivateAccessRepository
 import io.legado.app.data.repository.PrivateContentRepository
@@ -147,6 +149,8 @@ import io.legado.app.domain.gateway.ImportBookSettingsGateway
 import io.legado.app.domain.gateway.LabSettingsGateway
 import io.legado.app.domain.gateway.LocalBookGateway
 import io.legado.app.domain.gateway.LocalPasswordGateway
+import io.legado.app.domain.gateway.CustomTtsCatalogGateway
+import io.legado.app.domain.gateway.CustomTtsSettingsGateway
 import io.legado.app.domain.gateway.MangaReaderDataGateway
 import io.legado.app.domain.gateway.MangaReaderSessionFactory
 import io.legado.app.domain.gateway.MangaSettingsGateway
@@ -403,6 +407,9 @@ val appModule = module {
     single { ReadSettingsRepository(settingsRepository = get()) }
     single<ReadSettingsGateway> { get<ReadSettingsRepository>() }
     singleOf(::ReadAloudSettingsRepository)
+    singleOf(::CustomTtsSettingsRepository)
+    single<CustomTtsSettingsGateway> { get<CustomTtsSettingsRepository>() }
+    single<CustomTtsCatalogGateway> { CustomTtsCatalogRepository(get()) }
     singleOf(::ReadAloudSessionStore)
     single<PlaybackCapsuleGateway> { PlaybackCapsuleGatewayAdapter(get(), get()) }
     singleOf(::MainNavRouteTracker)

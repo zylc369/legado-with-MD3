@@ -24,6 +24,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import com.opensecurity.customtts.model.CustomTtsCatalog
+import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.script.ScriptException
 import io.legado.app.R
 import io.legado.app.constant.AppLog
@@ -58,6 +60,7 @@ import io.legado.app.help.exoplayer.InputStreamDataSource
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.readaloud.playback.CharacterPerformanceInstructionBuilder
 import io.legado.app.help.readaloud.playback.CloudTtsAudioSynthesizer
+import io.legado.app.help.readaloud.playback.CustomTtsUrlBuilder
 import io.legado.app.help.readaloud.playback.CloudTtsEmotionMapper
 import io.legado.app.help.readaloud.playback.CloudTtsRoleInstructionMapper
 import io.legado.app.help.readaloud.playback.SystemTtsFileSynthesizer
@@ -325,7 +328,8 @@ class HttpReadAloudService : BaseReadAloudService(),
                                 }
 
                                 else -> {
-                                    val inputStream = getSpeakStream(itemHttpTts, speakText)
+                                    val inputStream = getSpeakStream(
+                                        itemHttpTts, speakText, customParamsFor(routedVoice))
                                     if (inputStream != null) {
                                         createSpeakFile(fileName, inputStream)
                                     } else {
@@ -561,7 +565,8 @@ class HttpReadAloudService : BaseReadAloudService(),
                 ReadAloudVoice.ENGINE_HTTP -> {
                     val itemHttpTts = routedVoice.engineId.toLongOrNull()
                         ?.let(appDb.httpTTSDao::get) ?: httpTts
-                    val inputStream = getSpeakStream(itemHttpTts, speakText)
+                    val inputStream = getSpeakStream(
+                        itemHttpTts, speakText, customParamsFor(routedVoice))
                     if (inputStream != null) {
                         createSpeakFile(fileName, inputStream)
                         true
@@ -659,9 +664,11 @@ class HttpReadAloudService : BaseReadAloudService(),
                     if (speakText.isEmpty()) {
                         AppLog.put("阅读段落内容为空，使用无声音频代替。段落长度=${speakText.length}")
                     }
+                    val routedVoice = voiceForCue(playbackQueue, index, httpTts)
                     val itemHttpTts = httpTtsForCue(index, httpTts)
                     val fileName = md5SpeakFileName(text, httpTts = itemHttpTts)
-                    val dataSourceFactory = createDataSourceFactory(itemHttpTts, speakText)
+                    val dataSourceFactory = createDataSourceFactory(
+                        itemHttpTts, speakText, customParamsFor(routedVoice))
                     val downloader = createDownloader(dataSourceFactory, fileName)
                     downloaderChannel.send(downloader)
                     val mediaSource = createMediaSource(dataSourceFactory, fileName)
@@ -777,7 +784,8 @@ class HttpReadAloudService : BaseReadAloudService(),
                         val fileName = md5SpeakFileName(
                             content, prepared.chapterTitle, sourceKey = sourceKey,
                         )
-                        val dataSourceFactory = createDataSourceFactory(httpTts, speakText)
+                        val dataSourceFactory = createDataSourceFactory(
+                            httpTts, speakText, customParamsFor(routedVoice))
                         val downloader = createDownloader(dataSourceFactory, fileName)
                         downloaderChannel.send(downloader)
                     }
@@ -792,7 +800,8 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     private fun createDataSourceFactory(
         httpTts: HttpTTS,
-        speakText: String
+        speakText: String,
+        voiceParams: CustomTtsVoiceParams? = null,
     ): CacheDataSource.Factory {
         val upstreamFactory = DataSource.Factory {
             InputStreamDataSource {
@@ -801,7 +810,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                 } else {
                     kotlin.runCatching {
                         runBlocking(lifecycleScope.coroutineContext[Job]!!) {
-                            getSpeakStream(httpTts, speakText)
+                            getSpeakStream(httpTts, speakText, voiceParams)
                         }
                     }.onFailure {
                         when (it) {
@@ -837,14 +846,21 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     private suspend fun getSpeakStream(
         httpTts: HttpTTS,
-        speakText: String
+        speakText: String,
+        voiceParams: CustomTtsVoiceParams? = null,
+        speakSpeedOverride: Int? = null,
     ): InputStream? {
         while (true) {
             try {
+                val url = if (voiceParams != null) {
+                    CustomTtsUrlBuilder.buildCustomTtsUrl(httpTts.url, speakText, voiceParams)
+                } else {
+                    httpTts.url
+                }
                 val analyzeUrl = AnalyzeUrl(
-                    httpTts.url,
+                    url,
                     speakText = speakText,
-                    speakSpeed = (httpTts.speed ?: DEFAULT_TTS_SPEED) + 5,
+                    speakSpeed = speakSpeedOverride ?: ((httpTts.speed ?: DEFAULT_TTS_SPEED) + 5),
                     source = httpTts,
                     readTimeout = 300 * 1000L,
                     coroutineContext = currentCoroutineContext()
@@ -938,6 +954,15 @@ class HttpReadAloudService : BaseReadAloudService(),
     /**
      * 根据引擎类型生成用于文件名和缓存的 sourceKey
      */
+    /** 定制引擎的 voice 级参数（非定制引擎返回 null——原路径零改动）。 */
+    private fun customParamsFor(routedVoice: ReadAloudVoice): CustomTtsVoiceParams? {
+        if (routedVoice.engineType != ReadAloudVoice.ENGINE_HTTP) return null
+        if (routedVoice.engineId != CustomTtsCatalog.ENGINE_ID.toString()) return null
+        return runCatching {
+            GSON.fromJson(routedVoice.traitsJson, CustomTtsVoiceParams::class.java)
+        }.getOrNull()
+    }
+
     private fun sourceKeyForCue(
         routedVoice: ReadAloudVoice,
         cue: io.legado.app.domain.model.readaloud.ReadAloudPlaybackCue?,
@@ -962,7 +987,12 @@ class HttpReadAloudService : BaseReadAloudService(),
             else -> {
                 val itemHttpTts = routedVoice.engineId.toLongOrNull()
                     ?.let(appDb.httpTTSDao::get) ?: httpTts
-                itemHttpTts.url
+                if (itemHttpTts.id == CustomTtsCatalog.ENGINE_ID) {
+                    // 定制引擎: 参数必须进入缓存键（否则换参数后回放旧音频）
+                    "custom:${routedVoice.speakerId}:${routedVoice.traitsJson}"
+                } else {
+                    itemHttpTts.url
+                }
             }
         }
     }
