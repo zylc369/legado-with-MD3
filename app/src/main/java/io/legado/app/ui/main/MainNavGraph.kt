@@ -1379,6 +1379,16 @@ fun MainActivity.mainEntryProvider(
             onIntent = viewModel::onIntent,
             effects = viewModel.effects,
             onBack = { onNavigateBack() },
+            onOpenCustomTts = { onNavigateToRoute(MainRouteCustomTtsEngine(route.bookUrl)) },
+        )
+    }
+
+    entry<MainRouteCustomTtsEngine>(metadata = modalOverlayEntryMetadata()) {
+        val viewModel = koinViewModel<io.legado.app.feature.customtts.CustomTtsViewModel>()
+        BackHandler { onNavigateBack() }
+        io.legado.app.feature.customtts.CustomTtsRouteScreen(
+            viewModel = viewModel,
+            onBack = { onNavigateBack() },
         )
     }
 

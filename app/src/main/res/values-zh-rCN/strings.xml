@@ -3021,6 +3021,7 @@
     <string name="cloud_tts_cloud_engines">云 TTS</string>
     <string name="cloud_tts_http_engines">HTTP 协议 TTS</string>
     <string name="cloud_tts_system_engines">系统 TTS</string>
+    <string name="custom_tts_engine_group">定制引擎</string>
     <string name="read_aloud_default_engine_updated">默认朗读引擎已更新</string>
     <string name="cloud_tts_delete_voice_message">删除音色预设“%1$s”？使用它的人物绑定将回退到其他音色。</string>
     <string name="cloud_tts_no_test_voice">厂商没有返回可用于测试的音色</string>

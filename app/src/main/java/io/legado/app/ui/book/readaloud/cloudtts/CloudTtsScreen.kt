@@ -86,6 +86,7 @@ fun CloudTtsScreen(
     onIntent: (CloudTtsIntent) -> Unit,
     effects: Flow<CloudTtsEffect>,
     onBack: () -> Unit,
+    onOpenCustomTts: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
@@ -180,6 +181,23 @@ fun CloudTtsScreen(
             engineGroup(R.string.cloud_tts_cloud_engines, state.cloudEngines, onIntent)
             engineGroup(R.string.cloud_tts_http_engines, state.httpEngines, onIntent)
             engineGroup(R.string.cloud_tts_system_engines, state.systemEngines, onIntent)
+            if (onOpenCustomTts != null) {
+                item { EngineSectionTitle(R.string.custom_tts_engine_group) }
+                item {
+                    TinyClickableSettingItem(
+                        title = "定制朗读引擎",
+                        description = if (
+                            com.opensecurity.remotelink.gateway.RemoteLinkManager.currentPort > 0
+                        ) {
+                            "已连接 127.0.0.1:" +
+                                com.opensecurity.remotelink.gateway.RemoteLinkManager.currentPort
+                        } else {
+                            "未启用（点击配置）"
+                        },
+                        onClick = onOpenCustomTts,
+                    )
+                }
+            }
         }
     }
     OptionSheet(

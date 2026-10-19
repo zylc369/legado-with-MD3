@@ -1,0 +1,154 @@
+package io.legado.app.feature.customtts.components
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import io.legado.app.feature.customtts.CustomTtsIntent
+import io.legado.app.feature.customtts.CustomTtsUiState
+
+/** 混合朗读配置区块（首段兜底/兜底引擎与音色/双速度/超时）。 */
+@Composable
+fun HybridSection(
+    state: CustomTtsUiState,
+    onIntent: (CustomTtsIntent) -> Unit,
+) {
+    SectionCard(
+        title = "混合朗读",
+        subtitle = "与角色配音互斥：混合模式使用默认音色 + 兜底音色",
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = state.firstSegmentFallback,
+                onCheckedChange = { onIntent(CustomTtsIntent.SetFirstSegmentFallback(it)) },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("首段兜底 TTS")
+        }
+        OptionPicker(
+            label = "兜底引擎",
+            value = state.fallbackEngines
+                .firstOrNull {
+                    it.engineType == state.fallbackEngineType &&
+                        it.engineId == state.fallbackEngineId
+                }?.label.orEmpty(),
+            options = state.fallbackEngines.map { it.engineId to it.label },
+            onSelect = { id ->
+                state.fallbackEngines.firstOrNull { it.engineId == id }?.let {
+                    onIntent(CustomTtsIntent.SetFallbackEngine(it.engineType, it.engineId))
+                }
+            },
+        )
+        OptionPicker(
+            label = "兜底音色",
+            value = state.fallbackVoices
+                .firstOrNull { it.speakerId == state.fallbackSpeakerId }?.label.orEmpty(),
+            options = state.fallbackVoices.map { it.speakerId to it.label },
+            onSelect = { onIntent(CustomTtsIntent.SetFallbackVoice(it)) },
+        )
+
+        Text("兜底速度 %.1fx".format(state.fallbackSpeed), style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = state.fallbackSpeed,
+            onValueChange = { onIntent(CustomTtsIntent.SetFallbackSpeed(it)) },
+            valueRange = 0.5f..3.0f,
+        )
+        Text("定制速度 %.1fx".format(state.customSpeed), style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = state.customSpeed,
+            onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
+            valueRange = 0.5f..3.0f,
+        )
+        SettingField("远程单段超时（毫秒）", state.remoteTimeoutMs, KeyboardType.Number) {
+            onIntent(CustomTtsIntent.SetRemoteTimeout(it))
+        }
+    }
+}
+
+/** 分段设置区块（首段字数 = 阶梯首值；阶梯可自定义）。 */
+@Composable
+fun SegmentSection(
+    state: CustomTtsUiState,
+    onIntent: (CustomTtsIntent) -> Unit,
+) {
+    val stairs = state.segmentStairsText
+        .split(',', '，', ' ', '、')
+        .mapNotNull { it.trim().toIntOrNull() }
+    SectionCard(
+        title = "分段设置",
+        subtitle = "首段字数 = 阶梯首值；修改首段字数时保留其余档位",
+    ) {
+        SettingField(
+            label = "首段字数（默认 20）",
+            value = stairs.firstOrNull()?.toString().orEmpty(),
+            keyboardType = KeyboardType.Number,
+        ) { value ->
+            val n = value.toIntOrNull()?.coerceIn(5, 200) ?: return@SettingField
+            val rest = stairs.drop(1).ifEmpty { listOf(40, 60, 80) }
+            onIntent(CustomTtsIntent.SetSegmentStairs((listOf(n) + rest).joinToString(",")))
+        }
+        SettingField("阶梯序列（逗号分隔）", state.segmentStairsText) {
+            onIntent(CustomTtsIntent.SetSegmentStairs(it))
+        }
+        SettingField("常规段目标", state.segmentTarget, KeyboardType.Number) {
+            onIntent(CustomTtsIntent.SetSegmentTarget(it))
+        }
+    }
+}
+
+@Composable
+private fun OptionPicker(
+    label: String,
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { open = true }) {
+            Text(value.ifBlank { "选择" })
+        }
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = { open = false }) { Text("关闭") }
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    options.forEach { (id, name) ->
+                        TextButton(
+                            onClick = {
+                                onSelect(id)
+                                open = false
+                            },
+                        ) { Text(name) }
+                    }
+                }
+            },
+        )
+    }
+}

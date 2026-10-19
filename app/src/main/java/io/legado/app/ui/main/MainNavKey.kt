@@ -204,6 +204,9 @@ data class MainRouteBookVoiceCasting(
 data class MainRouteCloudTtsEngines(val bookUrl: String? = null) : MainRoute
 
 @Serializable
+data class MainRouteCustomTtsEngine(val bookUrl: String? = null) : MainRoute
+
+@Serializable
 data object MainRouteTtsCache : MainRoute
 
 @Serializable

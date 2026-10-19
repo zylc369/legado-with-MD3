@@ -150,6 +150,7 @@ import io.legado.app.domain.gateway.LabSettingsGateway
 import io.legado.app.domain.gateway.LocalBookGateway
 import io.legado.app.domain.gateway.LocalPasswordGateway
 import io.legado.app.domain.gateway.CustomTtsCatalogGateway
+import io.legado.app.feature.customtts.CustomTtsViewModel
 import io.legado.app.domain.gateway.CustomTtsSettingsGateway
 import io.legado.app.domain.gateway.MangaReaderDataGateway
 import io.legado.app.domain.gateway.MangaReaderSessionFactory
@@ -410,6 +411,7 @@ val appModule = module {
     singleOf(::CustomTtsSettingsRepository)
     single<CustomTtsSettingsGateway> { get<CustomTtsSettingsRepository>() }
     single<CustomTtsCatalogGateway> { CustomTtsCatalogRepository(get()) }
+    viewModelOf(::CustomTtsViewModel)
     singleOf(::ReadAloudSessionStore)
     single<PlaybackCapsuleGateway> { PlaybackCapsuleGatewayAdapter(get(), get()) }
     singleOf(::MainNavRouteTracker)

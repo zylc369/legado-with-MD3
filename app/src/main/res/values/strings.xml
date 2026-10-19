@@ -3025,6 +3025,7 @@
     <string name="cloud_tts_cloud_engines">Cloud TTS</string>
     <string name="cloud_tts_http_engines">HTTP protocol TTS</string>
     <string name="cloud_tts_system_engines">System TTS</string>
+    <string name="custom_tts_engine_group">Custom engine</string>
     <string name="read_aloud_default_engine_updated">Default read-aloud engine updated</string>
     <string name="cloud_tts_delete_voice_message">Delete the voice preset “%1$s”? Character assignments using it will fall back to another voice.</string>
     <string name="cloud_tts_no_test_voice">The provider returned no voice available for testing</string>
