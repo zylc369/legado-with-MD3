@@ -48,7 +48,11 @@ object ReadAloud {
 
             ReadAloudVoice.ENGINE_HTTP -> {
                 val http = selection.engineId.toLongOrNull()?.let(appDb.httpTTSDao::get)
-                if (http != null) {
+                // 定制引擎在网关未运行时不进入 HTTP 服务——回退系统 TTS
+                val customGatewayReady = http == null ||
+                    http.id != com.opensecurity.customtts.model.CustomTtsCatalog.ENGINE_ID ||
+                    com.opensecurity.remotelink.gateway.RemoteLinkManager.currentPort > 0
+                if (http != null && customGatewayReady) {
                     httpTTS = http
                     coordinatorDefaultEngineType = ReadAloudVoice.ENGINE_HTTP
                     coordinatorDefaultEngineId = selection.engineId

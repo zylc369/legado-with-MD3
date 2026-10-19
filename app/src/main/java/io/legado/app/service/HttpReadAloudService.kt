@@ -24,8 +24,11 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import com.opensecurity.customtts.hybrid.HybridTtsPolicy
 import com.opensecurity.customtts.model.CustomTtsCatalog
+import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
+import com.opensecurity.customtts.model.HybridTtsSwitch
 import com.script.ScriptException
 import io.legado.app.R
 import io.legado.app.constant.AppLog
@@ -61,11 +64,13 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.readaloud.playback.CharacterPerformanceInstructionBuilder
 import io.legado.app.help.readaloud.playback.CloudTtsAudioSynthesizer
 import io.legado.app.help.readaloud.playback.CustomTtsUrlBuilder
+import io.legado.app.help.readaloud.playback.HybridChapterBuilder
 import io.legado.app.help.readaloud.playback.CloudTtsEmotionMapper
 import io.legado.app.help.readaloud.playback.CloudTtsRoleInstructionMapper
 import io.legado.app.help.readaloud.playback.SystemTtsFileSynthesizer
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
+import io.legado.app.service.readaloud.HybridSynthesisCoordinator
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.GSON
@@ -97,6 +102,7 @@ import java.io.File
 import java.io.InputStream
 import java.net.ConnectException
 import java.net.SocketTimeoutException
+import kotlin.math.roundToInt
 
 /**
  * 在线朗读
@@ -178,6 +184,32 @@ class HttpReadAloudService : BaseReadAloudService(),
     private val cloudTtsAudioSynthesizer by lazy {
         CloudTtsAudioSynthesizer(get(CloudTtsEngineGateway::class.java))
     }
+    private val customTtsSettingsGateway by lazy {
+        GlobalContext.get().get<io.legado.app.domain.gateway.CustomTtsSettingsGateway>()
+    }
+
+    // ── 混合朗读状态（定制引擎专属；其余路径为空）────────────
+    private var hybridSegments: List<CustomTtsSegment> = emptyList()
+    private var hybridChapterPositions: List<Int> = emptyList()
+    private var hybridCoordinator: HybridSynthesisCoordinator? = null
+
+    private fun isCustomHybridMode(): Boolean {
+        val httpTts = ReadAloud.httpTTS ?: return false
+        if (httpTts.id != CustomTtsCatalog.ENGINE_ID) return false
+        return runCatching {
+            customTtsSettingsGateway.currentSettings.hybrid.fallbackEngineId.isNotEmpty()
+        }.getOrDefault(false)
+    }
+
+    private fun isHybridPlaybackActive(): Boolean =
+        hybridSegments.isNotEmpty() && hybridCoordinator != null
+
+    private fun clearHybridState() {
+        hybridCoordinator?.stop()
+        hybridCoordinator = null
+        hybridSegments = emptyList()
+        hybridChapterPositions = emptyList()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -219,10 +251,15 @@ class HttpReadAloudService : BaseReadAloudService(),
             ReadBook.readAloud()
         } else {
             super.play()
-            if (readAloudSettings.streamReadAloudAudio && !hasFileSynthesisCue()) {
-                downloadAndPlayAudiosStream()
+            if (isCustomHybridMode()) {
+                playCustomHybrid()
             } else {
-                downloadAndPlayAudios()
+                clearHybridState()
+                if (readAloudSettings.streamReadAloudAudio && !hasFileSynthesisCue()) {
+                    downloadAndPlayAudiosStream()
+                } else {
+                    downloadAndPlayAudios()
+                }
             }
         }
     }
@@ -232,11 +269,24 @@ class HttpReadAloudService : BaseReadAloudService(),
         playIndexJob?.cancel()
         preDownloadJob?.cancel()
         paragraphIntervalJob?.cancel()
+        clearHybridState()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
     }
 
     private fun updateNextPos(naturalCompletion: Boolean = false) {
+        if (isHybridPlaybackActive()) {
+            if (nowSpeak < hybridSegments.lastIndex) {
+                nowSpeak++
+                readAloudNumber = hybridChapterPositions.getOrNull(nowSpeak) ?: readAloudNumber
+                paragraphStartPos = 0
+            } else if (naturalCompletion) {
+                completeCurrentChapter()
+            } else {
+                nextChapter()
+            }
+            return
+        }
         if (!playbackQueue.isEmpty) {
             val current = playbackCursor ?: ReadAloudPlaybackCursor(nowSpeak, paragraphStartPos)
             playbackQueue.next(current)?.let(::moveToPlaybackCursor) ?: if (naturalCompletion) {
@@ -378,6 +428,159 @@ class HttpReadAloudService : BaseReadAloudService(),
         }.onError {
             AppLog.put("朗读下载出错\n${it.localizedMessage}", it, true)
         }
+    }
+
+    /** 混合朗读：前端分段 + 段级赛跑（远程优先，未就绪用兜底）。 */
+    private fun playCustomHybrid() {
+        exoPlayer.clearMediaItems()
+        downloadTask?.cancel()
+        preDownloadJob?.cancel()
+        clearHybridState()
+        downloadTask = execute {
+            downloadTaskActiveLock.withLock {
+                ensureActive()
+                val chapter = readerReadAloudChapter
+                    ?: throw NoStackTraceException("章节未就绪")
+                val settings = customTtsSettingsGateway.currentSettings
+                val contentSplitMode = resolveContentSplitMode(
+                    ReadAloudContentSplitMode.fromStorage(readAloudSettings.contentSplitMode)
+                )
+                val built = HybridChapterBuilder.build(
+                    chapter = chapter,
+                    splitByPage = contentSplitMode == ReadAloudContentSplitMode.Page,
+                    policy = contentSplitPolicy(contentSplitMode),
+                    firstTargets = settings.segmentStairs,
+                    target = settings.segmentTarget,
+                )
+                if (built.segments.isEmpty()) {
+                    AppLog.put("混合朗读分段为空（章节内容为空）")
+                    return@withLock
+                }
+                hybridSegments = built.segments
+                hybridChapterPositions = built.chapterPositions
+                // 混合模式不使用 cue 队列（播放单元 = 分段）
+                playbackQueue = ReadAloudPlaybackQueue.Empty
+                // 现有进度/文本显示按播放单元（段）对齐
+                contentList = built.segments.map { it.text }
+                val startIndex = built.chapterPositions
+                    .indexOfFirst { it >= readAloudNumber }
+                    .let { if (it < 0) 0 else it }
+                nowSpeak = startIndex
+                readAloudNumber = built.chapterPositions.getOrElse(startIndex) { 0 }
+                paragraphStartPos = 0
+
+                val voiceParams = settings.voices[settings.defaultVoiceId]
+                    ?: CustomTtsVoiceParams()
+                val coordinator = HybridSynthesisCoordinator(
+                    scope = lifecycleScope,
+                    policy = HybridTtsPolicy(settings.hybrid),
+                    remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toLong(),
+                    remoteParams = voiceParams.copy(speed = settings.hybrid.customSpeed),
+                    fallbackSpeed = settings.hybrid.fallbackSpeed,
+                    remoteSynth = { segment, params -> synthesizeRemoteSegment(segment, params) },
+                    fallbackSynth = { segment, speed -> synthesizeFallbackSegment(segment, speed) },
+                    onSwitch = { switch ->
+                        toastOnUi(
+                            if (switch == HybridTtsSwitch.ToFallback) "已切换为兜底引擎"
+                            else "已恢复定制引擎"
+                        )
+                    },
+                )
+                hybridCoordinator = coordinator
+                coordinator.start(built.segments)
+                for (index in startIndex until built.segments.size) {
+                    ensureActive()
+                    val file = coordinator.audioFor(index)
+                    val mediaItem = if (file != null) {
+                        MediaItem.fromUri(Uri.fromFile(file))
+                    } else {
+                        val fileName = md5SpeakFileName(built.segments[index].text)
+                        createSilentSound(fileName)
+                        MediaItem.fromUri(Uri.fromFile(getSpeakFileAsMd5(fileName)))
+                    }
+                    launch(Main) {
+                        if (exoPlayer.mediaItemCount == 0) {
+                            exoPlayer.setMediaItem(mediaItem)
+                            if (!pause) exoPlayer.prepare()
+                        } else {
+                            exoPlayer.addMediaItem(mediaItem)
+                        }
+                    }
+                }
+            }
+        }.onError {
+            AppLog.put("混合朗读出错\n${it.localizedMessage}", it, true)
+        }
+    }
+
+    /** 远程段合成（本地网关→P2P→服务端；缓存键含参数）。 */
+    private suspend fun synthesizeRemoteSegment(
+        segment: CustomTtsSegment,
+        params: CustomTtsVoiceParams,
+    ): File? {
+        val httpTts = ReadAloud.httpTTS ?: return null
+        val sourceKey = "custom:${params.voiceId}:${GSON.toJson(params)}"
+        val fileName = md5SpeakFileName(segment.text, httpTts = httpTts, sourceKey = sourceKey)
+        if (hasSpeakFile(fileName)) return getSpeakFileAsMd5(fileName)
+        val stream = getSpeakStream(httpTts, segment.text, params) ?: return null
+        stream.use { input -> createSpeakFile(fileName, input) }
+        return getSpeakFileAsMd5(fileName)
+    }
+
+    /** 兜底段合成：系统/HTTP/云引擎分派（速度覆盖由调用方给出）。 */
+    private suspend fun synthesizeFallbackSegment(
+        segment: CustomTtsSegment,
+        speedOverride: Float,
+    ): File? {
+        val hybrid = customTtsSettingsGateway.currentSettings.hybrid
+        val engineType = hybrid.fallbackEngineType
+        val engineId = hybrid.fallbackEngineId
+        val speakerId = hybrid.fallbackSpeakerId
+        val sourceKey = "fallback:$engineType:$engineId:$speakerId:$speedOverride"
+        val fileName = md5SpeakFileName(segment.text, sourceKey = sourceKey)
+        if (hasSpeakFile(fileName)) return getSpeakFileAsMd5(fileName)
+        val output = getSpeakFileAsMd5(fileName)
+        val ok = runCatching {
+            when (engineType) {
+                ReadAloudVoice.ENGINE_SYSTEM -> systemTtsFileSynthesizer.synthesize(
+                    engineId,
+                    speakerId,
+                    segment.text,
+                    output,
+                    speedOverride.coerceIn(0.1f, 2.0f),
+                    1f,
+                )
+
+                ReadAloudVoice.ENGINE_CLOUD -> {
+                    val voice = GlobalContext.get()
+                        .get<io.legado.app.domain.gateway.ReadAloudVoiceGateway>()
+                        .getEnabledVoices()
+                        .firstOrNull {
+                            it.engineType == engineType && it.engineId == engineId &&
+                                it.speakerId == speakerId
+                        } ?: return@runCatching false
+                    cloudTtsAudioSynthesizer.synthesize(voice, segment.text, output)
+                }
+
+                else -> {
+                    val http = engineId.toLongOrNull()?.let(appDb.httpTTSDao::get)
+                        ?: return@runCatching false
+                    // 兜底速度（倍速）→ Legado 源级刻度 0..80（(speed+5)/10 互逆）
+                    val speedScale = (speedOverride * 10f - 5f).roundToInt().coerceIn(0, 80)
+                    val stream = getSpeakStream(
+                        http, segment.text, speakSpeedOverride = speedScale)
+                        ?: return@runCatching false
+                    stream.use { input -> createSpeakFile(fileName, input) }
+                    true
+                }
+            }
+        }.getOrDefault(false)
+        if (!ok) {
+            runCatching { output.delete() } // 防半文件被缓存误命中
+            return null
+        }
+        writeTextIndexEntry(fileName, segment.text)
+        return output
     }
 
     /**
@@ -1129,7 +1332,7 @@ class HttpReadAloudService : BaseReadAloudService(),
         playIndexJob?.cancel()
         if (readerReadAloudChapter == null) return
         playIndexJob = lifecycleScope.launch {
-            if (isChapterTitleAt(nowSpeak)) return@launch
+            if (!isHybridPlaybackActive() && isChapterTitleAt(nowSpeak)) return@launch
             if (exoPlayer.duration <= 0) {
                 upTtsProgress(readAloudNumber + paragraphStartPos + 1)
                 return@launch
