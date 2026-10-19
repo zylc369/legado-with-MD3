@@ -61,4 +61,20 @@ class CustomTtsUrlBuilderTest {
         )
         assertTrue(url.contains("seed=0"))
     }
+
+    @Test
+    fun `请求级超时参数追加`() {
+        val url = CustomTtsUrlBuilder.buildCustomTtsUrl(
+            template, "x", CustomTtsVoiceParams(speed = 1.0f), requestTimeoutMs = 10_000,
+        )
+        assertTrue(url.contains("timeout_ms=10000"))
+    }
+
+    @Test
+    fun `未传超时不追加`() {
+        val url = CustomTtsUrlBuilder.buildCustomTtsUrl(
+            template, "x", CustomTtsVoiceParams(speed = 1.0f),
+        )
+        assertTrue(!url.contains("timeout_ms"))
+    }
 }

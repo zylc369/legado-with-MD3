@@ -64,7 +64,8 @@ class CustomTtsCatalogRepository(
                     displayName = params.displayName.ifEmpty { voiceId },
                     traitsJson = traits,
                     managedBy = ReadAloudVoice.MANAGED_BY_CONFIGURED_TTS,
-                    enabled = old?.enabled ?: true,
+                    // 出现在配置里即启用（此前被"删除策略"禁用过的音色重新加入也恢复）
+                    enabled = true,
                     available = true,
                     revision = if (old?.traitsJson == traits) old.revision else now,
                     createdAt = old?.createdAt ?: now,

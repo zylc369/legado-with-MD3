@@ -43,15 +43,6 @@ class HybridTtsPolicy(
         return decision
     }
 
-    /** 记录远程请求结果（策略不做锁定——仅为外部状态/统计保留接口）。 */
-    fun onRemoteResult(segmentIndex: Int, success: Boolean) {
-        // 无状态副作用：决策完全由 decide(segmentIndex, remoteReady) 驱动
-    }
-
-    fun onSegmentPlayed(segmentIndex: Int, decision: HybridTtsDecision) {
-        lastDecision = decision
-    }
-
     /** 取走待发事件（应用同方向防抖）；事件按产生顺序返回。 */
     fun drainSwitchEvents(nowMs: Long): List<HybridTtsSwitch> {
         val out = ArrayList<HybridTtsSwitch>()

@@ -20,6 +20,7 @@ class LocalTtsGatewayTest {
         var lastMethod = ""
         var lastPath = ""
         var lastBody: Map<String, Any?>? = null
+        var lastTimeoutMs = -1
 
         override fun request(
             method: String, path: String, body: Map<String, Any?>?, token: String, timeoutMs: Int,
@@ -27,6 +28,7 @@ class LocalTtsGatewayTest {
             lastMethod = method
             lastPath = path
             lastBody = body
+            lastTimeoutMs = timeoutMs
             return response
         }
 
@@ -100,6 +102,22 @@ class LocalTtsGatewayTest {
         assertEquals("", body["instruct"])
         assertEquals(-1, body["seed"])
         assertEquals("", body["mode"])
+    }
+
+    @Test
+    fun `timeout_ms 透传为请求级超时且不进入服务端请求体`() {
+        client.response = Triple(200, "audio/wav", byteArrayOf(1))
+        val (code, _, _) = get("/tts?text=abc&timeout_ms=10000")
+        assertEquals(200, code)
+        assertEquals(10_000, client.lastTimeoutMs)
+        assertTrue(client.lastBody?.containsKey("timeout_ms") != true)
+    }
+
+    @Test
+    fun `timeout_ms 非法回退默认超时`() {
+        client.response = Triple(200, "audio/wav", byteArrayOf(1))
+        get("/tts?text=abc&timeout_ms=999")
+        assertEquals(TtsClient.DEFAULT_API_TIMEOUT_MS, client.lastTimeoutMs)
     }
 
     @Test

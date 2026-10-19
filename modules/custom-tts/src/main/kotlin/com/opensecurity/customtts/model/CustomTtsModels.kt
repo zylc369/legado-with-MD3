@@ -35,13 +35,6 @@ enum class HybridTtsDecision { Remote, Fallback }
 /** 引擎切换事件（供 UI Toast；防抖由策略内完成）。 */
 enum class HybridTtsSwitch { ToFallback, ToRemote }
 
-/** 引擎引用（兜底合成/音色目录共用；ID 由 app 层解释）。 */
-data class EngineRef(
-    val engineType: String,
-    val engineId: String,
-    val speakerId: String = "",
-)
-
 /** 服务端音色目录条目（/api/tts/voices 响应的解析模型）。 */
 data class CustomTtsVoiceEntry(
     val id: String,

@@ -68,10 +68,7 @@ class CustomTtsViewModel(
             settingsGateway.settings.collect { settings -> applySettings(settings) }
         }
         loadFallbackEngines()
-        loadFallbackVoices(
-            _uiState.value.fallbackEngineType,
-            _uiState.value.fallbackEngineId,
-        )
+        // 兜底音色在首个 settings 应用后加载（见 applySettings）
     }
 
     fun onIntent(intent: CustomTtsIntent) {
@@ -85,7 +82,7 @@ class CustomTtsViewModel(
             is CustomTtsIntent.SetDefaultVoice -> saveDefaultVoice(intent.voiceId)
             is CustomTtsIntent.SaveVoiceParams -> saveVoiceParams(intent.voiceId, intent.params)
             CustomTtsIntent.RefreshVoices -> refreshVoices()
-            is CustomTtsIntent.PreviewVoice -> previewVoice(intent.voiceId)
+            is CustomTtsIntent.PreviewVoice -> previewVoice(intent.voiceId, intent.params)
             is CustomTtsIntent.SetFirstSegmentFallback ->
                 update { copy(firstSegmentFallback = intent.value) }
             is CustomTtsIntent.SetFallbackEngine -> {
@@ -210,26 +207,61 @@ class CustomTtsViewModel(
         _uiState.update(transform)
     }
 
+    private var settingsInitialized = false
+
+    /**
+     * 设置投影：
+     * - 首次（页面初始化）全量应用；
+     * - 后续仅合并"音色参数/默认音色"——不得覆盖页面未保存的草稿
+     *   （保存单个音色参数也会触发 settings 更新）。
+     */
     private fun applySettings(settings: CustomTtsSettings) {
-        _uiState.update {
-            it.copy(
-                defaultVoiceId = settings.defaultVoiceId,
-                firstSegmentFallback = settings.hybrid.firstSegmentFallback,
-                fallbackEngineType = settings.hybrid.fallbackEngineType,
-                fallbackEngineId = settings.hybrid.fallbackEngineId,
-                fallbackSpeakerId = settings.hybrid.fallbackSpeakerId,
-                fallbackSpeed = settings.hybrid.fallbackSpeed,
-                customSpeed = settings.hybrid.customSpeed,
-                remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toString(),
-                segmentStairsText = settings.segmentStairs.joinToString(","),
-                segmentTarget = settings.segmentTarget.toString(),
-                voices = settings.voices.map { (id, params) ->
+        val first = !settingsInitialized
+        _uiState.update { state ->
+            val voices = if (first) {
+                settings.voices.map { (id, params) ->
                     CustomTtsVoiceItemUi(
                         id = id,
                         name = params.displayName.ifEmpty { id },
                         params = params,
                     )
-                }.toImmutableList(),
+                }.toImmutableList()
+            } else {
+                state.voices.map { item ->
+                    val saved = settings.voices[item.id]
+                    if (saved != null) {
+                        item.copy(
+                            name = saved.displayName.ifEmpty { item.name },
+                            params = saved,
+                        )
+                    } else {
+                        item
+                    }
+                }.toImmutableList()
+            }
+            if (first) {
+                state.copy(
+                    defaultVoiceId = settings.defaultVoiceId,
+                    firstSegmentFallback = settings.hybrid.firstSegmentFallback,
+                    fallbackEngineType = settings.hybrid.fallbackEngineType,
+                    fallbackEngineId = settings.hybrid.fallbackEngineId,
+                    fallbackSpeakerId = settings.hybrid.fallbackSpeakerId,
+                    fallbackSpeed = settings.hybrid.fallbackSpeed,
+                    customSpeed = settings.hybrid.customSpeed,
+                    remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toString(),
+                    segmentStairsText = settings.segmentStairs.joinToString(","),
+                    segmentTarget = settings.segmentTarget.toString(),
+                    voices = voices,
+                )
+            } else {
+                state.copy(defaultVoiceId = settings.defaultVoiceId, voices = voices)
+            }
+        }
+        settingsInitialized = true
+        if (first) {
+            loadFallbackVoices(
+                _uiState.value.fallbackEngineType,
+                _uiState.value.fallbackEngineId,
             )
         }
     }
@@ -323,14 +355,23 @@ class CustomTtsViewModel(
             ?: return emit(CustomTtsEffect.ShowToast("常规段目标非法"))
         val timeout = s.remoteTimeoutMs.toIntOrNull()?.coerceIn(1_000, 120_000)
             ?: return emit(CustomTtsEffect.ShowToast("远程超时非法"))
+        val pskTrimmed = s.psk.trim()
+        val pskBytes = runCatching {
+            android.util.Base64.decode(pskTrimmed, android.util.Base64.DEFAULT)
+        }.getOrNull()
+        if (pskBytes == null || pskBytes.size != 32) {
+            return emit(CustomTtsEffect.ShowToast("PSK 非法（base64，解码后 32 字节）"))
+        }
+        if (stairs.first() !in 5..200) {
+            return emit(CustomTtsEffect.ShowToast("首段字数需在 5..200"))
+        }
 
         configStore.relayHost = s.relayHost.trim()
         configStore.relayPort = relayPort
-        configStore.pskBase64 = s.psk.trim()
+        configStore.pskBase64 = pskTrimmed
         configStore.nodeId = s.nodeId.trim().ifEmpty { "macmini" }
         configStore.localPort = localPort
         configStore.enabled = s.gatewayEnabled
-        RemoteLinkManager.restart(appCtx)
 
         val settings = CustomTtsSettings(
             defaultVoiceId = s.defaultVoiceId,
@@ -349,7 +390,18 @@ class CustomTtsViewModel(
         )
         viewModelScope.launch {
             update { copy(saving = true) }
-            settingsGateway.update { settings }
+            // 网关重启会等待在途 P2P 请求（最长 95s）——必须离开主线程
+            withContext(Dispatchers.IO) { RemoteLinkManager.restart(appCtx) }
+            val saveResult = runCatching { settingsGateway.update { settings } }
+            if (saveResult.isFailure) {
+                update { copy(saving = false) }
+                emit(
+                    CustomTtsEffect.ShowToast(
+                        "保存失败: ${saveResult.exceptionOrNull()?.message ?: "IO 错误"}"
+                    )
+                )
+                return@launch
+            }
             val runningPort = RemoteLinkManager.currentPort
             if (runningPort > 0) {
                 catalogGateway.sync(settings, runningPort).onFailure {
@@ -373,13 +425,14 @@ class CustomTtsViewModel(
     }
 
     /** 试听：合成固定示例文本到缓存 → PlayPreview（MediaPlayer 在 Screen 侧）。 */
-    private fun previewVoice(voiceId: String) {
+    private fun previewVoice(voiceId: String, paramsOverride: CustomTtsVoiceParams? = null) {
         val port = RemoteLinkManager.currentPort
         if (port <= 0) {
             emit(CustomTtsEffect.ShowToast("网关未运行（先保存并启用）"))
             return
         }
-        val params = settingsGateway.currentSettings.voices[voiceId]
+        val params = paramsOverride
+            ?: settingsGateway.currentSettings.voices[voiceId]
             ?: _uiState.value.voices.firstOrNull { it.id == voiceId }?.params
             ?: CustomTtsVoiceParams(voiceId = voiceId)
         val checked = CustomTtsParams.validate(params)

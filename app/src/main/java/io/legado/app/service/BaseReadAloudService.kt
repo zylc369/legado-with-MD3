@@ -263,6 +263,15 @@ abstract class BaseReadAloudService : BaseService(),
     protected fun paragraphChapterPositionAt(index: Int): Int? =
         contentChapterPositions.getOrNull(index)
 
+    /**
+     * 语法层（混合朗读）替换播放单元表：文本 + 章节位置（null=标题）。
+     * 与 [contentList] 同步替换，保证 nextP/prevP/seek 的位置映射不错位。
+     */
+    protected fun replacePlaybackUnits(texts: List<String>, chapterPositions: List<Int?>) {
+        contentList = texts
+        contentChapterPositions = chapterPositions
+    }
+
     protected fun isChapterTitleAt(index: Int): Boolean =
         index in contentChapterPositions.indices && contentChapterPositions[index] == null
     protected open val useSpeechPlaybackQueue: Boolean = false

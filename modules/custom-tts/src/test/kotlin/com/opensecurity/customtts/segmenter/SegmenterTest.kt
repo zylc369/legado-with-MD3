@@ -69,6 +69,18 @@ class SegmenterTest {
     }
 
     @Test
+    fun `带缩进与换行的原文偏移精确`() {
+        val text = "　　第一段内容。\n　　第二段内容。\n　　第三段内容。"
+        val segs = Segmenter.segmentWithOffsets(text)
+        for (seg in segs) {
+            // 段文本已 trim / 跨段拼接——区间内可能夹原文换行缩进，去空白后须一致
+            val slice = text.substring(seg.startOffset, seg.endOffset)
+            assertEquals(seg.text, slice.filterNot { it.isWhitespace() })
+            assertTrue(seg.endOffset > seg.startOffset)
+        }
+    }
+
+    @Test
     fun `偏移映射连续且为原文子串`() {
         val text = "第一句话内容。第二句话内容。第三句话内容。第四句话内容。"
         val segs = Segmenter.segmentWithOffsets(text)

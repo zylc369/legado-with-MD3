@@ -38,19 +38,24 @@ class P2pClient(
         fun create(): Session
     }
 
-    private var session: Session? = null
+    @Volatile private var session: Session? = null
     private var nextMsgId = 1
     @Volatile private var closed = false
     private val lock = Object()
 
     val isClosed: Boolean get() = closed
 
-    /** 关闭会话并标记客户端不可再用（幂等——防 socket 泄漏）。 */
+    /**
+     * 关闭会话并标记客户端不可再用（幂等——防 socket 泄漏）。
+     *
+     * 不获取请求锁：request 的整个网络往返持锁（最长 95s），若 close 等锁，
+     * 主线程上的配置保存会卡死。这里直接关闭 socket 让在途请求抛错退出。
+     */
     override fun close() {
-        synchronized(lock) {
-            closed = true
-            dropSession()
-        }
+        closed = true
+        val current = session
+        session = null
+        runCatching { current?.close() }
     }
 
     /** HTTP 语义 API 调用（api.req/api.resp——status/mime/body）。

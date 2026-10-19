@@ -460,8 +460,11 @@ class HttpReadAloudService : BaseReadAloudService(),
                 hybridChapterPositions = built.chapterPositions
                 // 混合模式不使用 cue 队列（播放单元 = 分段）
                 playbackQueue = ReadAloudPlaybackQueue.Empty
-                // 现有进度/文本显示按播放单元（段）对齐
-                contentList = built.segments.map { it.text }
+                // 播放单元表（文本 + 章节位置）——nextP/prevP/seek 依赖位置表
+                replacePlaybackUnits(
+                    built.segments.map { it.text },
+                    built.chapterPositions.map { it as Int? },
+                )
                 val startIndex = built.chapterPositions
                     .indexOfFirst { it >= readAloudNumber }
                     .let { if (it < 0) 0 else it }
@@ -477,7 +480,9 @@ class HttpReadAloudService : BaseReadAloudService(),
                     remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toLong(),
                     remoteParams = voiceParams.copy(speed = settings.hybrid.customSpeed),
                     fallbackSpeed = settings.hybrid.fallbackSpeed,
-                    remoteSynth = { segment, params -> synthesizeRemoteSegment(segment, params) },
+                    remoteSynth = { segment, params ->
+                        synthesizeRemoteSegment(segment, params, settings.hybrid.remoteTimeoutMs)
+                    },
                     fallbackSynth = { segment, speed -> synthesizeFallbackSegment(segment, speed) },
                     onSwitch = { switch ->
                         toastOnUi(
@@ -520,14 +525,32 @@ class HttpReadAloudService : BaseReadAloudService(),
     private suspend fun synthesizeRemoteSegment(
         segment: CustomTtsSegment,
         params: CustomTtsVoiceParams,
+        requestTimeoutMs: Int,
     ): File? {
         val httpTts = ReadAloud.httpTTS ?: return null
         val sourceKey = "custom:${params.voiceId}:${GSON.toJson(params)}"
         val fileName = md5SpeakFileName(segment.text, httpTts = httpTts, sourceKey = sourceKey)
         if (hasSpeakFile(fileName)) return getSpeakFileAsMd5(fileName)
-        val stream = getSpeakStream(httpTts, segment.text, params) ?: return null
-        stream.use { input -> createSpeakFile(fileName, input) }
-        return getSpeakFileAsMd5(fileName)
+        val stream = getSpeakStream(
+            httpTts, segment.text, params, requestTimeoutMs = requestTimeoutMs) ?: return null
+        return writeAudioAtomically(fileName, stream)
+    }
+
+    /** 音频原子写（临时文件 + rename）：失败不留半截文件被缓存误命中。 */
+    private fun writeAudioAtomically(fileName: String, input: InputStream): File? {
+        val output = getSpeakFileAsMd5(fileName)
+        val tmp = File(output.parentFile, "${output.name}.tmp")
+        return runCatching {
+            tmp.outputStream().use { out -> input.use { it.copyTo(out) } }
+            if (!tmp.renameTo(output)) {
+                tmp.copyTo(output, overwrite = true)
+                tmp.delete()
+            }
+            output
+        }.getOrElse {
+            runCatching { tmp.delete() }
+            null
+        }
     }
 
     /** 兜底段合成：系统/HTTP/云引擎分派（速度覆盖由调用方给出）。 */
@@ -872,7 +895,10 @@ class HttpReadAloudService : BaseReadAloudService(),
                     }
                     val routedVoice = voiceForCue(playbackQueue, index, httpTts)
                     val itemHttpTts = httpTtsForCue(index, httpTts)
-                    val fileName = md5SpeakFileName(text, httpTts = itemHttpTts)
+                    val cue = playbackQueue.cues.getOrNull(index)
+                    val sourceKey = sourceKeyForCue(routedVoice, cue, itemHttpTts)
+                    val fileName = md5SpeakFileName(
+                        text, httpTts = itemHttpTts, sourceKey = sourceKey)
                     val dataSourceFactory = createDataSourceFactory(
                         itemHttpTts, speakText, customParamsFor(routedVoice))
                     val downloader = createDownloader(dataSourceFactory, fileName)
@@ -1055,11 +1081,13 @@ class HttpReadAloudService : BaseReadAloudService(),
         speakText: String,
         voiceParams: CustomTtsVoiceParams? = null,
         speakSpeedOverride: Int? = null,
+        requestTimeoutMs: Int? = null,
     ): InputStream? {
         while (true) {
             try {
                 val url = if (voiceParams != null) {
-                    CustomTtsUrlBuilder.buildCustomTtsUrl(httpTts.url, speakText, voiceParams)
+                    CustomTtsUrlBuilder.buildCustomTtsUrl(
+                        httpTts.url, speakText, voiceParams, requestTimeoutMs)
                 } else {
                     httpTts.url
                 }

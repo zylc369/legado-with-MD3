@@ -81,7 +81,7 @@ fun VoiceSection(
                     onIntent(CustomTtsIntent.SaveVoiceParams(id, params))
                     editingId = null
                 },
-                onPreview = { onIntent(CustomTtsIntent.PreviewVoice(id)) },
+                onPreview = { params -> onIntent(CustomTtsIntent.PreviewVoice(id, params)) },
             )
         }
     }
@@ -114,12 +114,14 @@ private fun VoiceRow(
         Text(detail, style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onEditParams) { Text("参数") }
-            TextButton(onClick = { onIntent(CustomTtsIntent.SetDefaultVoice(voice.id)) }) {
-                Text("设为默认")
-            }
-            TextButton(onClick = { onIntent(CustomTtsIntent.PreviewVoice(voice.id)) }) {
-                Text("试听")
-            }
+            TextButton(
+                onClick = { onIntent(CustomTtsIntent.SetDefaultVoice(voice.id)) },
+                enabled = voice.available,
+            ) { Text("设为默认") }
+            TextButton(
+                onClick = { onIntent(CustomTtsIntent.PreviewVoice(voice.id)) },
+                enabled = voice.available,
+            ) { Text("试听") }
         }
     }
 }
@@ -131,7 +133,7 @@ fun VoiceParamsSheet(
     voice: CustomTtsVoiceItemUi,
     onDismiss: () -> Unit,
     onSave: (CustomTtsVoiceParams) -> Unit,
-    onPreview: () -> Unit,
+    onPreview: (CustomTtsVoiceParams) -> Unit,
 ) {
     var speed by remember { mutableFloatStateOf(voice.params.speed) }
     var instruct by remember { mutableStateOf(voice.params.instruct) }
@@ -184,30 +186,24 @@ fun VoiceParamsSheet(
                     label = { Text(if (modeInstruct) "✓ 指令控制" else "指令控制") },
                 )
             }
+            fun draftParams(): CustomTtsVoiceParams = voice.params.copy(
+                voiceId = voice.id,
+                displayName = voice.params.displayName.ifEmpty { voice.name },
+                speed = speed,
+                instruct = instruct.trim(),
+                seed = seedText.toIntOrNull() ?: -1,
+                mode = if (modeInstruct) {
+                    CustomTtsParams.MODE_INSTRUCT
+                } else {
+                    CustomTtsParams.MODE_DEFAULT
+                },
+            )
             Row(
                 modifier = Modifier.padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Button(onClick = onPreview) { Text("试听") }
-                Button(
-                    onClick = {
-                        val seed = seedText.toIntOrNull() ?: -1
-                        onSave(
-                            voice.params.copy(
-                                voiceId = voice.id,
-                                displayName = voice.params.displayName.ifEmpty { voice.name },
-                                speed = speed,
-                                instruct = instruct.trim(),
-                                seed = seed,
-                                mode = if (modeInstruct) {
-                                    CustomTtsParams.MODE_INSTRUCT
-                                } else {
-                                    CustomTtsParams.MODE_DEFAULT
-                                },
-                            )
-                        )
-                    },
-                ) { Text("保存") }
+                Button(onClick = { onPreview(draftParams()) }) { Text("试听") }
+                Button(onClick = { onSave(draftParams()) }) { Text("保存") }
             }
         }
     }

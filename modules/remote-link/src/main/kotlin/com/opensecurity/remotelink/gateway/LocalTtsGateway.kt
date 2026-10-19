@@ -34,7 +34,8 @@ class LocalTtsGateway(port: Int, private val client: TtsClient) : NanoHTTPD("127
         val params = GatewayParams.parse(session.parameters)
             .getOrElse { return badRequest(it.message ?: "参数非法") }
         val (status, mime, body) = client.request(
-            "POST", "/api/tts", GatewayParams.toMap(params))
+            "POST", "/api/tts", GatewayParams.toMap(params),
+            timeoutMs = params.timeoutMs ?: TtsClient.DEFAULT_API_TIMEOUT_MS)
         if (status != 200) return newFixedLengthResponse(
             Response.Status.lookup(status) ?: Response.Status.INTERNAL_ERROR,
             "text/plain", "remote tts failed: $status ${String(body as? ByteArray ?: ByteArray(0))}")
@@ -74,6 +75,8 @@ data class GatewayTtsParams(
     val instruct: String,
     val seed: Int,
     val mode: String,
+    /** 请求级超时（毫秒；网关专用，不透传给服务端）。 */
+    val timeoutMs: Int? = null,
 )
 
 /** 网关参数解析/序列化（纯函数——单测友好）。 */
@@ -90,6 +93,8 @@ object GatewayParams {
             instruct = parameters["instruct"]?.firstOrNull().orEmpty(),
             seed = parameters["seed"]?.firstOrNull()?.toIntOrNull() ?: -1,
             mode = parameters["mode"]?.firstOrNull().orEmpty(),
+            timeoutMs = parameters["timeout_ms"]?.firstOrNull()?.toIntOrNull()
+                ?.takeIf { it in 1_000..120_000 },
         )
     }
 

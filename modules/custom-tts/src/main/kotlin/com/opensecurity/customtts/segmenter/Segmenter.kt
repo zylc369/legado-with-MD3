@@ -131,6 +131,29 @@ object Segmenter {
         return segs
     }
 
+    /**
+     * 从 [from] 起在原文中定位 [seg]：逐字符匹配，原文中的空白字符（换行/缩进）
+     * 可被跳过（段文本已被 trim / 跨段拼接）。返回匹配区间；失败返回 null。
+     */
+    private fun matchSegment(text: String, seg: String, from: Int): IntRange? {
+        var i = from
+        var j = 0
+        var start = -1
+        while (i < text.length && j < seg.length) {
+            val c = text[i]
+            when {
+                c == seg[j] -> {
+                    if (start < 0) start = i
+                    i++
+                    j++
+                }
+                c.isWhitespace() -> i++
+                else -> return null
+            }
+        }
+        return if (j == seg.length && start >= 0) start until i else null
+    }
+
     /** 带偏移的分段（本章朗读文本流——偏移用于进度/高亮映射）。 */
     fun segmentWithOffsets(
         text: String,
@@ -141,9 +164,18 @@ object Segmenter {
         val segments = segmentText(text, target, hardMax, firstTargets)
         var cursor = 0
         return segments.map { seg ->
-            val found = text.indexOf(seg, cursor)
-            val from = if (found >= 0) found else cursor
-            val end = (from + seg.length).coerceAtMost(text.length)
+            // 句块扫描会 trim 段首尾空白，跨自然段的段内部还夹着原文换行/缩进——
+            // 用"空白容忍匹配"定位原文区间（逐字符前进、跳过原文空白）
+            val range = matchSegment(text, seg, cursor)
+            val from: Int
+            val end: Int
+            if (range != null) {
+                from = range.first
+                end = range.last + 1
+            } else {
+                from = cursor
+                end = (from + seg.length).coerceAtMost(text.length)
+            }
             cursor = end
             CustomTtsSegment(text = seg, startOffset = from, endOffset = end)
         }

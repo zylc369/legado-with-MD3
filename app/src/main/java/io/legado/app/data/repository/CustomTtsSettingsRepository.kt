@@ -7,9 +7,11 @@ import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsConfig
 import io.legado.app.domain.gateway.CustomTtsSettingsGateway
 import io.legado.app.domain.model.settings.CustomTtsSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import splitties.init.appCtx
 import java.io.File
 
@@ -28,11 +30,14 @@ class CustomTtsSettingsRepository : CustomTtsSettingsGateway {
     override val settings: StateFlow<CustomTtsSettings> = _settings.asStateFlow()
 
     override suspend fun update(transform: (CustomTtsSettings) -> CustomTtsSettings) {
-        synchronized(lock) {
-            val next = transform(_settings.value)
-            runCatching { file.writeText(gson.toJson(next)) }
-            _settings.value = next
+        val next = synchronized(lock) { transform(_settings.value) }
+        // 磁盘写必须离开调用方线程（VM 侧为主线程）；失败时抛出由调用方提示，
+        // 不更新内存状态（否则用户会误以为已保存）
+        withContext(Dispatchers.IO) {
+            file.parentFile?.mkdirs()
+            file.writeText(gson.toJson(next))
         }
+        _settings.value = next
     }
 
     private fun load(): CustomTtsSettings {

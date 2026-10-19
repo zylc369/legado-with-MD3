@@ -81,7 +81,11 @@ sealed interface CustomTtsIntent {
     data class SetDefaultVoice(val voiceId: String) : CustomTtsIntent
 
     data class SaveVoiceParams(val voiceId: String, val params: CustomTtsVoiceParams) : CustomTtsIntent
-    data class PreviewVoice(val voiceId: String) : CustomTtsIntent
+    /** [params] 非空 = 使用未保存的草稿参数试听。 */
+    data class PreviewVoice(
+        val voiceId: String,
+        val params: CustomTtsVoiceParams? = null,
+    ) : CustomTtsIntent
 
     data class SetFirstSegmentFallback(val value: Boolean) : CustomTtsIntent
     data class SetFallbackEngine(val engineType: String, val engineId: String) : CustomTtsIntent

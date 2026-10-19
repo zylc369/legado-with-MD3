@@ -49,6 +49,12 @@ class SegmenterVectorTest {
             for (seg in actual) {
                 assertTrue(seg.startOffset in 0..case.text.length)
                 assertTrue(seg.endOffset in seg.startOffset..case.text.length)
+                // 偏移必须精确指向段文本（进度/高亮映射依赖）
+                assertEquals(
+                    "case=${case.name}",
+                    seg.text,
+                    case.text.substring(seg.startOffset, seg.endOffset),
+                )
             }
         }
     }

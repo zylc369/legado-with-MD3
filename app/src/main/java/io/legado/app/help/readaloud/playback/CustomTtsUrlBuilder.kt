@@ -15,6 +15,7 @@ object CustomTtsUrlBuilder {
         templateUrl: String,
         text: String,
         params: CustomTtsVoiceParams,
+        requestTimeoutMs: Int? = null,
     ): String {
         val expanded = templateUrl.replace("{{speakText}}", encode(text))
         val sb = StringBuilder(expanded)
@@ -31,6 +32,10 @@ object CustomTtsUrlBuilder {
         if (params.instruct.isNotEmpty()) append("instruct", params.instruct)
         if (params.seed >= 0) append("seed", params.seed.toString())
         if (params.mode.isNotEmpty()) append("mode", params.mode)
+        // 网关请求级超时（混合调度 10s 快速降级；服务端不消费该参数）
+        if (requestTimeoutMs != null && requestTimeoutMs > 0) {
+            append("timeout_ms", requestTimeoutMs.toString())
+        }
         return sb.toString()
     }
 

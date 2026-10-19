@@ -6,6 +6,7 @@ import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsConfig
 import com.opensecurity.customtts.model.HybridTtsSwitch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -16,7 +17,8 @@ import java.io.File
 
 class HybridSynthesisCoordinatorTest {
 
-    private fun seg(text: String) = CustomTtsSegment(text = text, startOffset = 0, endOffset = text.length)
+    private fun seg(text: String) =
+        CustomTtsSegment(text = text, startOffset = 0, endOffset = text.length)
 
     private fun policy(firstFallback: Boolean = false) =
         HybridTtsPolicy(HybridTtsConfig(firstSegmentFallback = firstFallback))
@@ -24,19 +26,32 @@ class HybridSynthesisCoordinatorTest {
     private fun temp(prefix: String): File =
         File.createTempFile(prefix, ".wav").also { it.deleteOnExit() }
 
+    /** 测试作用域内构建协调器：IO 合成调度器与测试调度器对齐（虚拟时间可控）。 */
+    private fun TestScope.coordinator(
+        policy: HybridTtsPolicy,
+        remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
+        fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
+        onSwitch: (HybridTtsSwitch) -> Unit = {},
+    ) = HybridSynthesisCoordinator(
+        scope = this,
+        policy = policy,
+        remoteTimeoutMs = 1_000,
+        remoteParams = CustomTtsVoiceParams(),
+        fallbackSpeed = 1f,
+        remoteSynth = remoteSynth,
+        fallbackSynth = fallbackSynth,
+        onSwitch = onSwitch,
+        ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+    )
+
     @Test
     fun `远程就绪使用远程文件`() = runTest(UnconfinedTestDispatcher()) {
         val remote = temp("remote")
         val fallback = temp("fallback")
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ -> remote },
             fallbackSynth = { _, _ -> fallback },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a"), seg("b")))
         assertEquals(remote, coordinator.audioFor(0))
@@ -45,15 +60,10 @@ class HybridSynthesisCoordinatorTest {
     @Test
     fun `远程失败使用兜底文件`() = runTest(UnconfinedTestDispatcher()) {
         val fallback = temp("fallback")
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> fallback },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a")))
         assertEquals(fallback, coordinator.audioFor(0))
@@ -62,18 +72,13 @@ class HybridSynthesisCoordinatorTest {
     @Test
     fun `远程未完成时立即用兜底不等待`() = runTest(UnconfinedTestDispatcher()) {
         val fallback = temp("fallback")
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ ->
                 delay(60_000)
                 temp("late")
             },
             fallbackSynth = { _, _ -> fallback },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a")))
         assertEquals(fallback, coordinator.audioFor(0))
@@ -83,15 +88,10 @@ class HybridSynthesisCoordinatorTest {
     fun `首段兜底开关开启时强制兜底`() = runTest(UnconfinedTestDispatcher()) {
         val remote = temp("remote")
         val fallback = temp("fallback")
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(firstFallback = true),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ -> remote },
             fallbackSynth = { _, _ -> fallback },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a")))
         assertEquals(fallback, coordinator.audioFor(0))
@@ -101,12 +101,8 @@ class HybridSynthesisCoordinatorTest {
     fun `远端恢复产生切换事件`() = runTest(UnconfinedTestDispatcher()) {
         val events = mutableListOf<HybridTtsSwitch>()
         var call = 0
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ ->
                 call++
                 if (call >= 2) temp("remote") else null
@@ -122,15 +118,10 @@ class HybridSynthesisCoordinatorTest {
 
     @Test
     fun `两者都失败返回 null`() = runTest(UnconfinedTestDispatcher()) {
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> null },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a")))
         assertNull(coordinator.audioFor(0))
@@ -139,19 +130,14 @@ class HybridSynthesisCoordinatorTest {
     @Test
     fun `stop 后取消在途任务`() = runTest(UnconfinedTestDispatcher()) {
         var completed = false
-        val coordinator = HybridSynthesisCoordinator(
-            scope = this,
+        val coordinator = coordinator(
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
             remoteSynth = { _, _ ->
                 delay(10_000)
                 completed = true
                 temp("late")
             },
             fallbackSynth = { _, _ -> null },
-            onSwitch = {},
         )
         coordinator.start(listOf(seg("a")))
         coordinator.stop()

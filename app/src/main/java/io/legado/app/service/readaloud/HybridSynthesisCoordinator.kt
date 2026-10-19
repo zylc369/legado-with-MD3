@@ -5,8 +5,10 @@ import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsDecision
 import com.opensecurity.customtts.model.HybridTtsSwitch
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
 import java.io.File
@@ -16,6 +18,7 @@ import java.io.File
  * - 每段播放前判定远程音频是否就绪：就绪用远程，未就绪立即用兜底
  * - 远程/兜底均预取（返回驱动 + 前瞻窗口 2）
  * - 远程请求超时即放弃该段（晚到结果由合成器自行缓存，不阻塞播放）
+ * - 合成一律在 [ioDispatcher] 执行（阻塞 IO 不得落在主线程——否则弱网会 ANR）
  * - 切换事件经 [HybridTtsPolicy] 防抖后回调
  */
 class HybridSynthesisCoordinator(
@@ -27,6 +30,8 @@ class HybridSynthesisCoordinator(
     private val remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
     private val fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
     private val onSwitch: (HybridTtsSwitch) -> Unit,
+    private val fallbackTimeoutMs: Long = 15_000,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private var segments: List<CustomTtsSegment> = emptyList()
     private val remoteJobs = HashMap<Int, Deferred<File?>>()
@@ -76,15 +81,17 @@ class HybridSynthesisCoordinator(
         if (index !in segments.indices) return
         val segment = segments[index]
         if (index !in remoteJobs) {
-            remoteJobs[index] = scope.async {
+            remoteJobs[index] = scope.async(ioDispatcher) {
                 runCatching {
                     withTimeout(remoteTimeoutMs) { remoteSynth(segment, remoteParams) }
                 }.getOrNull()
             }
         }
         if (index !in fallbackJobs) {
-            fallbackJobs[index] = scope.async {
-                runCatching { fallbackSynth(segment, fallbackSpeed) }.getOrNull()
+            fallbackJobs[index] = scope.async(ioDispatcher) {
+                runCatching {
+                    withTimeout(fallbackTimeoutMs) { fallbackSynth(segment, fallbackSpeed) }
+                }.getOrNull()
             }
         }
     }
