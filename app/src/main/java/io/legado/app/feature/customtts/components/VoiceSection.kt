@@ -17,9 +17,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -121,11 +120,6 @@ private fun VoiceRow(
             TextButton(onClick = { onIntent(CustomTtsIntent.PreviewVoice(voice.id)) }) {
                 Text("试听")
             }
-            Spacer(Modifier.width(4.dp))
-            Switch(
-                checked = voice.enabled,
-                onCheckedChange = { onIntent(CustomTtsIntent.ToggleVoice(voice.id, it)) },
-            )
         }
     }
 }
@@ -156,11 +150,12 @@ fun VoiceParamsSheet(
             Text("音色参数 · ${voice.name}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
 
-            Text("速度 %.1fx".format(speed), style = MaterialTheme.typography.bodyMedium)
-            Slider(
+            TinySliderSettingItem(
+                title = "速度 %.1fx".format(speed),
                 value = speed,
-                onValueChange = { speed = (it * 10).roundToInt() / 10f },
                 valueRange = CustomTtsParams.SPEED_MIN..CustomTtsParams.SPEED_MAX,
+                steps = 24,
+                onValueChange = { speed = (it * 10).roundToInt() / 10f },
             )
 
             OutlinedTextField(

@@ -506,6 +506,9 @@ class HttpReadAloudService : BaseReadAloudService(),
                             exoPlayer.addMediaItem(mediaItem)
                         }
                     }
+                    // 段落间隔模式：与现有路径一致——只准备当前段，STATE_ENDED 后
+                    // 由 play() 重建（间隔等待由 STATE_ENDED 分支实现）
+                    if (readAloudSettings.ttsParagraphInterval > 0 && index == startIndex) break
                 }
             }
         }.onError {

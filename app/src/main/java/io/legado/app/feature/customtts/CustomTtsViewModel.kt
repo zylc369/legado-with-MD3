@@ -83,7 +83,6 @@ class CustomTtsViewModel(
             is CustomTtsIntent.SetLocalPort -> update { copy(localPort = intent.value) }
             is CustomTtsIntent.SetGatewayEnabled -> update { copy(gatewayEnabled = intent.value) }
             is CustomTtsIntent.SetDefaultVoice -> saveDefaultVoice(intent.voiceId)
-            is CustomTtsIntent.ToggleVoice -> toggleVoice(intent.voiceId, intent.enabled)
             is CustomTtsIntent.SaveVoiceParams -> saveVoiceParams(intent.voiceId, intent.params)
             CustomTtsIntent.RefreshVoices -> refreshVoices()
             is CustomTtsIntent.PreviewVoice -> previewVoice(intent.voiceId)
@@ -239,22 +238,6 @@ class CustomTtsViewModel(
         update { copy(defaultVoiceId = voiceId) }
         viewModelScope.launch {
             settingsGateway.update { it.copy(defaultVoiceId = voiceId) }
-        }
-    }
-
-    /** 停用 = 从定制音色集合移除（保存同步时按删除策略处理：被绑定则禁用）。 */
-    private fun toggleVoice(voiceId: String, enabled: Boolean) {
-        update {
-            copy(
-                voices = voices.filter { it.id != voiceId || enabled }
-                    .map { if (it.id == voiceId) it.copy(enabled = enabled) else it }
-                    .toImmutableList(),
-            )
-        }
-        viewModelScope.launch {
-            settingsGateway.update { settings ->
-                if (enabled) settings else settings.copy(voices = settings.voices - voiceId)
-            }
         }
     }
 

@@ -79,7 +79,7 @@ sealed interface CustomTtsIntent {
 
     data object RefreshVoices : CustomTtsIntent
     data class SetDefaultVoice(val voiceId: String) : CustomTtsIntent
-    data class ToggleVoice(val voiceId: String, val enabled: Boolean) : CustomTtsIntent
+
     data class SaveVoiceParams(val voiceId: String, val params: CustomTtsVoiceParams) : CustomTtsIntent
     data class PreviewVoice(val voiceId: String) : CustomTtsIntent
 

@@ -8,7 +8,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.legado.app.feature.customtts.CustomTtsIntent
 import io.legado.app.feature.customtts.CustomTtsUiState
+import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 
 /** 混合朗读配置区块（首段兜底/兜底引擎与音色/双速度/超时）。 */
 @Composable
@@ -64,17 +64,19 @@ fun HybridSection(
             onSelect = { onIntent(CustomTtsIntent.SetFallbackVoice(it)) },
         )
 
-        Text("兜底速度 %.1fx".format(state.fallbackSpeed), style = MaterialTheme.typography.bodyMedium)
-        Slider(
+        TinySliderSettingItem(
+            title = "兜底速度 %.1fx".format(state.fallbackSpeed),
             value = state.fallbackSpeed,
+            valueRange = 0.5f..3.0f,
+            steps = 24,
             onValueChange = { onIntent(CustomTtsIntent.SetFallbackSpeed(it)) },
-            valueRange = 0.5f..3.0f,
         )
-        Text("定制速度 %.1fx".format(state.customSpeed), style = MaterialTheme.typography.bodyMedium)
-        Slider(
+        TinySliderSettingItem(
+            title = "定制速度 %.1fx".format(state.customSpeed),
             value = state.customSpeed,
-            onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
             valueRange = 0.5f..3.0f,
+            steps = 24,
+            onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
         )
         SettingField("远程单段超时（毫秒）", state.remoteTimeoutMs, KeyboardType.Number) {
             onIntent(CustomTtsIntent.SetRemoteTimeout(it))
