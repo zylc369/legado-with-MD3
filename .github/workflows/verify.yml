@@ -47,6 +47,7 @@ jobs:
           ./gradlew \
             testAppDebugUnitTest \
             :modules:remote-link:testDebugUnitTest \
+            :modules:custom-tts:testDebugUnitTest \
             lintAppDebug \
             verifyConfigArchitecture \
             assembleAppDebug \
