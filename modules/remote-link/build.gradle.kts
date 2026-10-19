@@ -26,6 +26,7 @@ dependencies {
     // 本地 HTTP 网关（Legado HttpTTS 引擎对接; ~100KB 无传递依赖）
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.robolectric)
 }
 
 dependencies {

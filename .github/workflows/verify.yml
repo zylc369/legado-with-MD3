@@ -46,6 +46,7 @@ jobs:
           chmod +x gradlew
           ./gradlew \
             testAppDebugUnitTest \
+            :modules:remote-link:testDebugUnitTest \
             lintAppDebug \
             verifyConfigArchitecture \
             assembleAppDebug \

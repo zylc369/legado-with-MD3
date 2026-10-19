@@ -27,29 +27,48 @@ class P2pClient(
     private val psk: ByteArray,
     private val nodeId: String,
     private val punchTimeoutMs: Int = 1500,
-    private val apiTimeoutMs: Int = 30000
-) {
+    /** 测试注入（生产为 null）——非空时跳过打洞/中继，直接创建会话。 */
+    private val sessionFactory: SessionFactory? = null,
+) : TtsClient {
     class P2pException(message: String, cause: Throwable? = null)
         : Exception(message, cause)
 
-    private var udpSession: UdpSession? = null
-    private var relaySession: RelaySession? = null
+    /** 测试注入用的会话工厂。 */
+    fun interface SessionFactory {
+        fun create(): Session
+    }
+
+    private var session: Session? = null
     private var nextMsgId = 1
+    @Volatile private var closed = false
     private val lock = Object()
 
-    /** HTTP 语义 API 调用（api.req/api.resp——status/mime/body）。 */
-    fun request(method: String, path: String, body: ByteArray?,
-                token: String = ""): Triple<Int, String, Any?> = synchronized(lock) {
+    val isClosed: Boolean get() = closed
+
+    /** 关闭会话并标记客户端不可再用（幂等——防 socket 泄漏）。 */
+    override fun close() {
+        synchronized(lock) {
+            closed = true
+            dropSession()
+        }
+    }
+
+    /** HTTP 语义 API 调用（api.req/api.resp——status/mime/body）。
+     *  [body] 结构化 JSON body（msgpack map——节点侧还原为 dict 转发 HTTP）；
+     *  [timeoutMs] 请求级超时（混合调度用 10s 快速降级；默认 95s 与服务端对齐）。 */
+    override fun request(method: String, path: String, body: Map<String, Any?>?,
+                token: String, timeoutMs: Int): Triple<Int, String, Any?> = synchronized(lock) {
+        if (closed) throw P2pException("客户端已关闭")
         val msgId = nextMsgId++
         val req = HashMap<String, Any?>()
         req["t"] = "api.req"; req["id"] = msgId
         req["method"] = method; req["path"] = path
-        req["body"] = body?.let { Msg.decode(it) }
+        req["body"] = body
         if (token.isNotEmpty()) req["token"] = token
         val session = ensureSession()
         val resp = try {
             session.send(req)
-            awaitResponse(session, msgId)
+            awaitResponse(session, msgId, timeoutMs)
         } catch (e: Exception) {
             dropSession()
             throw P2pException("请求失败: ${e.message}", e)
@@ -60,7 +79,8 @@ class P2pClient(
     }
 
     /** 快速健康探测。 */
-    fun ping(): Boolean = synchronized(lock) {
+    override fun ping(): Boolean = synchronized(lock) {
+        if (closed) return false
         try {
             val session = ensureSession()
             val msgId = nextMsgId++
@@ -75,25 +95,29 @@ class P2pClient(
     // ── 会话建立（§7 状态机）──────────────────────────
 
     private fun ensureSession(): Session {
-        udpSession?.let { if (it.alive) return it else udpSession = null }
-        relaySession?.let { if (it.alive) return it else relaySession = null }
+        session?.let { if (it.alive) return it else session = null }
+        // 测试注入: 跳过打洞/中继，直接创建会话
+        sessionFactory?.let { factory ->
+            val s = factory.create()
+            session = s
+            return s
+        }
         // ① 打洞直连
         try {
             val s = punchAndConnect()
-            udpSession = s
+            session = s
             return s
         } catch (_: Exception) {
             // 落中继
         }
         // ② 中继兜底
         val s = relayConnect()
-        relaySession = s
+        session = s
         return s
     }
 
     private fun dropSession() {
-        udpSession?.close(); udpSession = null
-        relaySession?.close(); relaySession = null
+        session?.close(); session = null
     }
 
     /** lookup → punch 互射 → Noise 握手（§6; UDP 洞口先建——lookup 携带其本地地址，
@@ -193,7 +217,7 @@ class P2pClient(
 
     /** 收响应直到 id 匹配（忽略乱序/无关消息）。 */
     private fun awaitResponse(session: Session, msgId: Int,
-                              timeoutMs: Int = apiTimeoutMs): Map<String, Any?> {
+                              timeoutMs: Int = TtsClient.DEFAULT_API_TIMEOUT_MS): Map<String, Any?> {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val msg = session.recvNext(timeoutMs = 500) ?: continue
