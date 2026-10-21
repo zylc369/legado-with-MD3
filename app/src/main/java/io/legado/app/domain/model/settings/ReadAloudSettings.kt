@@ -80,7 +80,7 @@ data class ReadAloudSettings(
     /** 章节定时：还剩几章；0 表示未开启。 */
     val timerChapters: Int = 0,
     val ttsFollowSys: Boolean = true,
-    val ttsSpeechRate: Int = 5,
+    val ttsSpeechRate: Int = 10,
     val speechAnalysisMode: String = "rule",
     /**
      * Reasoning level for AI speech analysis (dialogue attribution / AI understanding).

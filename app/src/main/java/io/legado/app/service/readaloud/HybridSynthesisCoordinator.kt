@@ -5,10 +5,12 @@ import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsDecision
 import com.opensecurity.customtts.model.HybridTtsSwitch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
 import java.io.File
@@ -21,6 +23,7 @@ import java.io.File
  * - 合成一律在 [ioDispatcher] 执行（阻塞 IO 不得落在主线程——否则弱网会 ANR）
  * - 切换事件经 [HybridTtsPolicy] 防抖后回调
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HybridSynthesisCoordinator(
     private val scope: CoroutineScope,
     private val policy: HybridTtsPolicy,
@@ -29,9 +32,13 @@ class HybridSynthesisCoordinator(
     private val fallbackSpeed: Float,
     private val remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
     private val fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
-    private val onSwitch: (HybridTtsSwitch) -> Unit,
     private val fallbackTimeoutMs: Long = 15_000,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** 系统兜底改由 TTS 直接 speak 时关闭文件兜底，避免无意义的落盘合成。 */
+    private val fallbackEnabled: Boolean = true,
+    /** 诊断日志入口（测试默认丢弃；app 注入 AppLog）。 */
+    private val log: (String) -> Unit = {},
+    private val logError: (String, Throwable) -> Unit = { _, _ -> },
 ) {
     private var segments: List<CustomTtsSegment> = emptyList()
     private val remoteJobs = HashMap<Int, Deferred<File?>>()
@@ -41,32 +48,42 @@ class HybridSynthesisCoordinator(
         stop()
         segments = segmentList
         policy.reset()
-        schedule(0)
     }
 
-    /** 播放第 [index] 段前调用：返回该段可播放文件（远程优先，否则兜底；均失败 = null）。 */
-    suspend fun audioFor(index: Int): File? {
+    /** 预取（只调度，不等待）。 */
+    fun prefetch(index: Int) {
+        schedule(index)
+    }
+
+    /** 非阻塞读取：该段远端已就绪则返回文件，否则 null。 */
+    fun remoteReady(index: Int): File? {
         if (index !in segments.indices) return null
         schedule(index)
+        val job = remoteJobs[index] ?: return null
+        if (!job.isCompleted) return null
+        return runCatching { job.getCompleted() }.getOrNull()
+    }
 
-        val remoteJob = remoteJobs[index]
-        val remoteReady = remoteJob?.isCompleted == true &&
-            runCatching { remoteJob.getCompleted() }.getOrNull() != null
-        val decision = policy.decide(index, remoteReady)
-
-        // 返回驱动 + 前瞻窗口
-        schedule(index + 1)
-        schedule(index + 2)
-
-        val remoteFile = if (decision == HybridTtsDecision.Remote) {
-            remoteJob?.let { runCatching { it.await() }.getOrNull() }
-        } else {
+    /** 等兜底文件（云/HTTP 兜底用；系统兜底走 TTS 直接 speak，不会调用）。 */
+    suspend fun fallbackFile(index: Int): File? {
+        if (!fallbackEnabled) return null
+        schedule(index)
+        val job = fallbackJobs[index] ?: return null
+        return try {
+            job.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             null
         }
-        drainSwitches()
-        if (remoteFile != null) return remoteFile
-        return fallbackJobs[index]?.let { runCatching { it.await() }.getOrNull() }
     }
+
+    /** 段级决策（复用同一策略，保证首段兜底与切换 Toast 只有一套逻辑）。 */
+    fun decide(index: Int, remoteReady: Boolean): HybridTtsDecision =
+        policy.decide(index, remoteReady)
+
+    fun drainSwitches(): List<HybridTtsSwitch> =
+        policy.drainSwitchEvents(System.currentTimeMillis())
 
     fun stop() {
         remoteJobs.values.forEach { it.cancel() }
@@ -81,22 +98,54 @@ class HybridSynthesisCoordinator(
         if (index !in segments.indices) return
         val segment = segments[index]
         if (index !in remoteJobs) {
+            log(
+                "混合TTS: 预取段 $index remote（voice=${remoteParams.voiceId.ifEmpty { "<默认>" }}" +
+                    ", timeout=${remoteTimeoutMs}ms, textLen=${segment.text.length}）"
+            )
             remoteJobs[index] = scope.async(ioDispatcher) {
-                runCatching {
+                val startedAt = System.currentTimeMillis()
+                val result = try {
                     withTimeout(remoteTimeoutMs) { remoteSynth(segment, remoteParams) }
-                }.getOrNull()
+                } catch (e: TimeoutCancellationException) {
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    log("混合TTS: 段 $index 远程超时（${elapsed}ms/限制${remoteTimeoutMs}ms）")
+                    null
+                } catch (e: CancellationException) {
+                    // 章节切换/停止触发的取消：不是合成失败，向上传播。
+                    throw e
+                } catch (e: Exception) {
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    // 堆栈由合成分派层（HttpReadAloudService）记录一次即可，避免重复落盘。
+                    log("混合TTS: 段 $index 远程合成失败（${elapsed}ms）: ${e.localizedMessage}")
+                    null
+                }
+                val elapsed = System.currentTimeMillis() - startedAt
+                if (result != null) {
+                    log("混合TTS: 段 $index 远程就绪（${elapsed}ms）${result.name} (${result.length()}B)")
+                } else {
+                    log("混合TTS: 段 $index 远程无结果（${elapsed}ms）")
+                }
+                result
             }
         }
-        if (index !in fallbackJobs) {
+        if (fallbackEnabled && index !in fallbackJobs) {
+            log(
+                "混合TTS: 预取段 $index fallback（speed=$fallbackSpeed" +
+                    ", textLen=${segment.text.length}）"
+            )
             fallbackJobs[index] = scope.async(ioDispatcher) {
-                runCatching {
+                try {
                     withTimeout(fallbackTimeoutMs) { fallbackSynth(segment, fallbackSpeed) }
-                }.getOrNull()
+                } catch (e: TimeoutCancellationException) {
+                    log("混合TTS: 段 $index 兜底超时（${fallbackTimeoutMs}ms）")
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logError("混合TTS: 段 $index 兜底合成失败: ${e.localizedMessage}", e)
+                    null
+                }
             }
         }
-    }
-
-    private fun drainSwitches() {
-        policy.drainSwitchEvents(System.currentTimeMillis()).forEach(onSwitch)
     }
 }

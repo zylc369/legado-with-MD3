@@ -4,6 +4,7 @@ import com.opensecurity.customtts.hybrid.HybridTtsPolicy
 import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsConfig
+import com.opensecurity.customtts.model.HybridTtsDecision
 import com.opensecurity.customtts.model.HybridTtsSwitch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
@@ -31,7 +32,7 @@ class HybridSynthesisCoordinatorTest {
         policy: HybridTtsPolicy,
         remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
         fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
-        onSwitch: (HybridTtsSwitch) -> Unit = {},
+        fallbackEnabled: Boolean = true,
     ) = HybridSynthesisCoordinator(
         scope = this,
         policy = policy,
@@ -40,37 +41,25 @@ class HybridSynthesisCoordinatorTest {
         fallbackSpeed = 1f,
         remoteSynth = remoteSynth,
         fallbackSynth = fallbackSynth,
-        onSwitch = onSwitch,
+        fallbackEnabled = fallbackEnabled,
         ioDispatcher = UnconfinedTestDispatcher(testScheduler),
     )
 
     @Test
-    fun `远程就绪使用远程文件`() = runTest(UnconfinedTestDispatcher()) {
+    fun `remoteReady 非阻塞返回已完成的远端文件`() = runTest(UnconfinedTestDispatcher()) {
         val remote = temp("remote")
-        val fallback = temp("fallback")
         val coordinator = coordinator(
             policy = policy(),
             remoteSynth = { _, _ -> remote },
-            fallbackSynth = { _, _ -> fallback },
-        )
-        coordinator.start(listOf(seg("a"), seg("b")))
-        assertEquals(remote, coordinator.audioFor(0))
-    }
-
-    @Test
-    fun `远程失败使用兜底文件`() = runTest(UnconfinedTestDispatcher()) {
-        val fallback = temp("fallback")
-        val coordinator = coordinator(
-            policy = policy(),
-            remoteSynth = { _, _ -> null },
-            fallbackSynth = { _, _ -> fallback },
+            fallbackSynth = { _, _ -> null },
         )
         coordinator.start(listOf(seg("a")))
-        assertEquals(fallback, coordinator.audioFor(0))
+        coordinator.prefetch(0)
+        assertEquals(remote, coordinator.remoteReady(0))
     }
 
     @Test
-    fun `远程未完成时立即用兜底不等待`() = runTest(UnconfinedTestDispatcher()) {
+    fun `remoteReady 在远端未完成时返回 null`() = runTest(UnconfinedTestDispatcher()) {
         val fallback = temp("fallback")
         val coordinator = coordinator(
             policy = policy(),
@@ -81,50 +70,78 @@ class HybridSynthesisCoordinatorTest {
             fallbackSynth = { _, _ -> fallback },
         )
         coordinator.start(listOf(seg("a")))
-        assertEquals(fallback, coordinator.audioFor(0))
+        coordinator.prefetch(0)
+        assertNull(coordinator.remoteReady(0))
     }
 
     @Test
-    fun `首段兜底开关开启时强制兜底`() = runTest(UnconfinedTestDispatcher()) {
-        val remote = temp("remote")
+    fun `远端失败时 remoteReady 返回 null 且兜底文件可用`() = runTest(UnconfinedTestDispatcher()) {
         val fallback = temp("fallback")
         val coordinator = coordinator(
-            policy = policy(firstFallback = true),
-            remoteSynth = { _, _ -> remote },
+            policy = policy(),
+            remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> fallback },
         )
         coordinator.start(listOf(seg("a")))
-        assertEquals(fallback, coordinator.audioFor(0))
+        coordinator.prefetch(0)
+        assertNull(coordinator.remoteReady(0))
+        assertEquals(fallback, coordinator.fallbackFile(0))
     }
 
     @Test
-    fun `远端恢复产生切换事件`() = runTest(UnconfinedTestDispatcher()) {
-        val events = mutableListOf<HybridTtsSwitch>()
-        var call = 0
-        val coordinator = coordinator(
-            policy = policy(),
-            remoteSynth = { _, _ ->
-                call++
-                if (call >= 2) temp("remote") else null
-            },
-            fallbackSynth = { _, _ -> temp("fallback") },
-            onSwitch = { events.add(it) },
-        )
-        coordinator.start(listOf(seg("a"), seg("b")))
-        coordinator.audioFor(0) // 段 0 远程失败 → 兜底
-        coordinator.audioFor(1) // 段 1 远程成功 → 切回
-        assertEquals(listOf(HybridTtsSwitch.ToRemote), events)
-    }
-
-    @Test
-    fun `两者都失败返回 null`() = runTest(UnconfinedTestDispatcher()) {
+    fun `两者都失败时兜底文件返回 null`() = runTest(UnconfinedTestDispatcher()) {
         val coordinator = coordinator(
             policy = policy(),
             remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> null },
         )
         coordinator.start(listOf(seg("a")))
-        assertNull(coordinator.audioFor(0))
+        coordinator.prefetch(0)
+        assertNull(coordinator.remoteReady(0))
+        assertNull(coordinator.fallbackFile(0))
+    }
+
+    @Test
+    fun `首段兜底开关开启时强制兜底`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator(
+            policy = policy(firstFallback = true),
+            remoteSynth = { _, _ -> temp("remote") },
+            fallbackSynth = { _, _ -> temp("fallback") },
+        )
+        coordinator.start(listOf(seg("a")))
+        coordinator.prefetch(0)
+        assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = true))
+    }
+
+    @Test
+    fun `远端恢复产生切换事件`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> temp("remote") },
+            fallbackSynth = { _, _ -> temp("fallback") },
+        )
+        coordinator.start(listOf(seg("a"), seg("b")))
+        assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = false))
+        assertEquals(HybridTtsDecision.Remote, coordinator.decide(1, remoteReady = true))
+        assertEquals(listOf(HybridTtsSwitch.ToRemote), coordinator.drainSwitches())
+    }
+
+    @Test
+    fun `系统兜底关闭兜底文件合成时不调度兜底文件`() = runTest(UnconfinedTestDispatcher()) {
+        var fallbackCalled = false
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> null },
+            fallbackSynth = { _, _ ->
+                fallbackCalled = true
+                temp("fallback")
+            },
+            fallbackEnabled = false,
+        )
+        coordinator.start(listOf(seg("a")))
+        coordinator.prefetch(0)
+        assertNull(coordinator.fallbackFile(0))
+        assertTrue(!fallbackCalled)
     }
 
     @Test
@@ -140,6 +157,7 @@ class HybridSynthesisCoordinatorTest {
             fallbackSynth = { _, _ -> null },
         )
         coordinator.start(listOf(seg("a")))
+        coordinator.prefetch(0)
         coordinator.stop()
         assertTrue(!completed)
     }

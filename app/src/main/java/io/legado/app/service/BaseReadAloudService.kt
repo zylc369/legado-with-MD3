@@ -223,6 +223,7 @@ abstract class BaseReadAloudService : BaseService(),
     internal var speechPlan = emptyList<SpeechPlanItem>()
     internal var playbackQueue = ReadAloudPlaybackQueue.Empty
     internal var playbackCursor: ReadAloudPlaybackCursor? = null
+    @Volatile
     internal var nowSpeak: Int = 0
     internal var readAloudNumber: Int = 0
     internal var readerReadAloudChapter: ReaderReadAloudChapter? = null
@@ -283,6 +284,50 @@ abstract class BaseReadAloudService : BaseService(),
     protected open fun onPlaybackStateReplaced() {}
     protected val hasSpeechPlaybackQueue: Boolean
         get() = useSpeechPlaybackQueue && !playbackQueue.isEmpty
+
+    /**
+     * 唯一的“推进到下一个播放单元”实现。
+     *
+     * 系统 TTS、普通 HTTP/云、混合模式都调用这里；引擎回调只负责报告完成，
+     * 不再各自维护 nowSpeak/readAloudNumber/paragraphStartPos 的推进。
+     *
+     * @return true=仍有下一单元；false=本章结束/已切章。
+     *
+     * [skipUnreadable]：TTS 队列不包含纯标点段，推进时要跳过；HTTP/混合的播放列表
+     * 每个单元（含纯标点的无声项/分段）都是一个播放项，必须逐一推进，否则索引会错位。
+     */
+    protected fun updateNextPos(
+        naturalCompletion: Boolean = false,
+        skipUnreadable: Boolean = true,
+    ): Boolean {
+        if (contentList.isEmpty()) return false
+        if (!playbackQueue.isEmpty) {
+            val current = playbackCursor
+                ?: ReadAloudPlaybackCursor(nowSpeak, paragraphStartPos)
+            val next = playbackQueue.next(current)
+            if (next != null) {
+                moveToPlaybackCursor(next)
+                return true
+            }
+            if (naturalCompletion) completeCurrentChapter() else nextChapter()
+            return false
+        }
+        do {
+            readAloudNumber = nextParagraphPosition(
+                currentPosition = readAloudNumber,
+                paragraphLength = contentList[nowSpeak].length,
+                paragraphStartPosition = paragraphStartPos,
+            )
+            paragraphStartPos = 0
+            if (nowSpeak >= contentList.lastIndex) {
+                if (naturalCompletion) completeCurrentChapter() else nextChapter()
+                return false
+            }
+            nowSpeak++
+        } while (skipUnreadable && contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
+        readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
+        return true
+    }
 
     /** 当前朗读倍速, 用于把字符进度估算成媒体播放器时间轴 */
     protected open val currentSpeechRate: Float
@@ -730,6 +775,23 @@ abstract class BaseReadAloudService : BaseService(),
         postEvent(EventBus.TTS_PROGRESS, progress)
         // 通用同步：朗读推进后若可见页正好是朗读页（脱离后被朗读追上），恢复跟随以隐藏脱离悬浮条
         ReadBook.syncReadAloudFollowWithVisiblePage()
+    }
+
+    /**
+     * 系统 TTS 段开始的统一进度发布：普通系统朗读与混合兜底共用。
+     *
+     * TTS 引擎的 onStart 不一定回到业务层；这里必须调用一次，否则 reader 的
+     * readAloudProgress 会一直是 null，高亮整段消失。
+     */
+    protected fun publishSystemTtsStart(position: Int) {
+        upTtsProgress(position + 1)
+    }
+
+    /** 系统 TTS 逐词回调的统一进度发布：普通系统朗读与混合兜底共用。 */
+    protected fun publishSystemTtsRange(position: Int) {
+        updateReadAloudProgressSnapshot(position)
+        moveToReadAloudPage(position)
+        upTtsProgress(position)
     }
 
     protected fun updateReadAloudProgressSnapshot(progress: Int) {

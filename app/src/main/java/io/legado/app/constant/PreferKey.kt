@@ -43,6 +43,8 @@ object PreferKey {
     const val ttsEngine = "appTtsEngine"
     const val ttsFollowSys = "ttsFollowSys"
     const val ttsSpeechRate = "ttsSpeechRate"
+    /** 十分之一倍速（10 = 1.0x）；旧 ttsSpeechRate 仅用于一次性迁移。 */
+    const val readAloudTtsSpeechRateV2 = "readAloudTtsSpeechRateV2"
     const val prevKeys = "prevKeyCodes"
     const val nextKeys = "nextKeyCodes"
     const val showHome = "showHome"

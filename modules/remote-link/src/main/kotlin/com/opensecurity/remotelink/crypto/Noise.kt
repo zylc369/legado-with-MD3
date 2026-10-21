@@ -12,6 +12,16 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
+ * 打包进来的完整 BouncyCastle provider 实例。
+ *
+ * 不能按名字 `"BC"` 取 provider：Android 平台自带同名裁剪版（`Security.getProvider("BC")`
+ * 永不为空，导致 `addProvider` 不生效），它不支持 ChaCha20-Poly1305；按名字取会抛
+ * `NoSuchAlgorithmException`，Noise 握手在设备上必然失败（JVM 单测无平台 BC，暴露不出来）。
+ * 直接传实例可绕开 provider 名冲突，且不依赖运行环境是否注册过 BC。
+ */
+private val bcProvider = BouncyCastleProvider()
+
+/**
  * Noise NNpsk2 握手（wire protocol §2/附录A——与 Python 端逐字节对齐）。
  *
  * 原语: X25519 + ChaCha20-Poly1305 + SHA-256; PSK 32B。
@@ -23,13 +33,6 @@ class NoiseHandshake private constructor(
     privateE: ByteArray?
 ) {
     companion object {
-        init {
-            // BC Provider 提供 ChaCha20-Poly1305 的 JCA 覆盖（Android 平台 API 不足）
-            if (java.security.Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-                runCatching { java.security.Security.addProvider(BouncyCastleProvider()) }
-            }
-        }
-
         private val PROTOCOL_NAME = "Noise_NNpsk2_25519_ChaChaPoly_SHA256".toByteArray()
         const val PSK_LEN = 32
 
@@ -100,7 +103,7 @@ class NoiseHandshake private constructor(
     }
 
     private fun aeadEncrypt(key: ByteArray, n: Long, aad: ByteArray, pt: ByteArray): ByteArray {
-        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", "BC")
+        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", bcProvider)
         val iv = ByteBufferLittle.longTo12(n)
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,
             SecretKeySpec(key, "ChaCha20"), javax.crypto.spec.IvParameterSpec(iv))
@@ -109,7 +112,7 @@ class NoiseHandshake private constructor(
     }
 
     private fun aeadDecrypt(key: ByteArray, n: Long, aad: ByteArray, ct: ByteArray): ByteArray {
-        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", "BC")
+        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", bcProvider)
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE,
             SecretKeySpec(key, "ChaCha20"), javax.crypto.spec.IvParameterSpec(ByteBufferLittle.longTo12(n)))
         cipher.updateAAD(aad)
@@ -229,7 +232,7 @@ class SessionCrypto(sendKey: ByteArray, recvKey: ByteArray) {
     class CryptoException(message: String) : Exception(message)
 
     private fun seal(key: ByteArray, n: Long, pt: ByteArray): ByteArray {
-        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", "BC")
+        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", bcProvider)
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,
             SecretKeySpec(key, "ChaCha20"),
             javax.crypto.spec.IvParameterSpec(ByteBufferLittle.longTo12(n)))
@@ -237,7 +240,7 @@ class SessionCrypto(sendKey: ByteArray, recvKey: ByteArray) {
     }
 
     private fun open(key: ByteArray, n: Long, ct: ByteArray): ByteArray {
-        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", "BC")
+        val cipher = javax.crypto.Cipher.getInstance("ChaCha20-Poly1305", bcProvider)
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE,
             SecretKeySpec(key, "ChaCha20"),
             javax.crypto.spec.IvParameterSpec(ByteBufferLittle.longTo12(n)))

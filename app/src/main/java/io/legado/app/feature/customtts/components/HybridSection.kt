@@ -68,15 +68,24 @@ fun HybridSection(
             title = "兜底速度 %.1fx".format(state.fallbackSpeed),
             value = state.fallbackSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 24,
+            steps = 4,
+            stepSize = 0.5f,
+            showDecimal = true,
             onValueChange = { onIntent(CustomTtsIntent.SetFallbackSpeed(it)) },
         )
         TinySliderSettingItem(
             title = "定制速度 %.1fx".format(state.customSpeed),
             value = state.customSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 24,
+            steps = 4,
+            stepSize = 0.5f,
+            showDecimal = true,
             onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
+        )
+        Text(
+            "混合模式下以上两个速度就是最终倍速；全局朗读语速不参与。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SettingField("远程单段超时（毫秒）", state.remoteTimeoutMs, KeyboardType.Number) {
             onIntent(CustomTtsIntent.SetRemoteTimeout(it))

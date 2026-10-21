@@ -10,7 +10,6 @@ import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.domain.gateway.ReadAloudSettingsGateway
-import io.legado.app.domain.model.readaloud.ReadAloudPlaybackCursor
 import io.legado.app.domain.model.readaloud.ReadAloudEngineSelection
 import io.legado.app.domain.model.readaloud.ReadAloudVoice
 import io.legado.app.domain.model.readaloud.SpeechEngineRoute
@@ -19,6 +18,7 @@ import io.legado.app.domain.model.readaloud.SystemTtsVoiceConfig
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.MediaHelp
 import io.legado.app.help.coroutine.Coroutine
+import io.legado.app.help.readaloud.playback.ReadAloudSpeed
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.config.readConfig.ReadConfig
@@ -40,11 +40,11 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
     override val useSpeechPlaybackQueue: Boolean = true
 
     protected override val currentSpeechRate: Float
-        get() = if (ReadConfig.ttsFollowSys) 1f else (speechRateSetting + 5) / 10f
+        get() = if (ReadConfig.ttsFollowSys) 1f else ReadAloudSpeed.fromTenths(speechRateSetting)
 
     private val readAloudSettingsGateway: ReadAloudSettingsGateway by inject()
     @Volatile
-    private var speechRateSetting: Int = 5
+    private var speechRateSetting: Int = 10
 
     private var textToSpeech: TextToSpeech? = null
     private var ttsInitFinish = false
@@ -55,6 +55,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
     private var needParagraphInterval = false // 是否需要进行段落间隔延迟
     private var activeEngine = ""
     private var activeVoiceName = ""
+    private var activeTraitsJson = ""
     private var defaultVoiceName = ""
     private var initGeneration = 0
 
@@ -304,16 +305,18 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
     }
 
     private fun applyPreset(voice: ReadAloudVoice) {
+        activeTraitsJson = voice.traitsJson
         val config = runCatching {
             GSON.fromJson(voice.traitsJson, SystemTtsVoiceConfig::class.java)
         }.getOrNull() ?: SystemTtsVoiceConfig()
-        val globalRate = if (ReadConfig.ttsFollowSys) {
-            1f
-        } else {
-            (ReadConfig.ttsSpeechRate + 5) / 10f
-        }
         textToSpeech?.apply {
-            setSpeechRate(config.speechRate ?: globalRate)
+            setSpeechRate(
+                ReadAloudSpeed.systemTtsRate(
+                    globalTenths = ReadConfig.ttsSpeechRate,
+                    traitsJson = voice.traitsJson,
+                    followSystem = ReadConfig.ttsFollowSys,
+                )
+            )
             setPitch(config.pitch ?: 1f)
         }
     }
@@ -337,7 +340,10 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 initTts()
             }
         } else {
-            val speechRate = (speechRateSetting + 5) / 10f
+            val speechRate = ReadAloudSpeed.systemTtsRate(
+                globalTenths = speechRateSetting,
+                traitsJson = activeTraitsJson,
+            )
             textToSpeech?.setSpeechRate(speechRate)
             upMediaMetadata()
             if (reset && !pause) {
@@ -392,7 +398,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                     utteranceStartReadAloudNumber, 0, utteranceStartPos
                 )
                 if (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex)) {
-                    nextParagraph(naturalCompletion = true)
+                    updateNextPos(naturalCompletion = true)
                 }
                 if (pageIndex + 1 < it.pageCount
                     && position + 1 > it.pageStart(pageIndex + 1)
@@ -402,7 +408,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                     // Mark it so ReadBook neither detaches the session nor restarts TTS at page two.
                     withSpeechNavigation { ReadBook.moveToNextPage() }
                 }
-                upTtsProgress(position + 1)
+                publishSystemTtsStart(position)
                 upMediaMetadata(showContent = true)
             }
         }
@@ -412,7 +418,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             LogUtils.d(TAG, "onDone utteranceId:$s")
             // 章节自然完结时本章播放状态已作废, 恢复播放由换章后的 newReadAloud 负责;
             // 若此处仍用旧队列 play(), 会把本章最后一段反复重新入队
-            val paragraphAdvanced = nextParagraph(naturalCompletion = true)
+            val paragraphAdvanced = updateNextPos(naturalCompletion = true)
             if (paragraphAdvanced &&
                 !pause &&
                 (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)
@@ -431,13 +437,10 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             val position = currentRangePosition(
                 utteranceStartReadAloudNumber, start, utteranceStartPos
             )
-            updateReadAloudProgressSnapshot(position)
             val msg =
                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
             LogUtils.d(TAG, msg)
-            if (moveToReadAloudPage(position)) {
-                upTtsProgress(position)
-            }
+            publishSystemTtsRange(position)
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
@@ -446,7 +449,7 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
                 TAG,
                 "onError nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId errorCode:$errorCode"
             )
-            val paragraphAdvanced = nextParagraph(naturalCompletion = true)
+            val paragraphAdvanced = updateNextPos(naturalCompletion = true)
             if (paragraphAdvanced &&
                 !pause &&
                 (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)
@@ -456,42 +459,11 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             }
         }
 
-        private fun nextParagraph(naturalCompletion: Boolean = false): Boolean {
-            if (hasSpeechPlaybackQueue) {
-                val current = playbackCursor
-                    ?: ReadAloudPlaybackCursor(nowSpeak, paragraphStartPos)
-                val next = playbackQueue.next(current)
-                if (next != null) {
-                    moveToPlaybackCursor(next)
-                    return true
-                }
-                if (naturalCompletion) completeCurrentChapter() else nextChapter()
-                return false
-            }
-            //跳过全标点段落
-            do {
-                readAloudNumber = nextParagraphPosition(
-                    currentPosition = readAloudNumber,
-                    paragraphLength = contentList[nowSpeak].length,
-                    paragraphStartPosition = paragraphStartPos,
-                )
-                paragraphStartPos = 0
-                nowSpeak++
-                if (nowSpeak >= contentList.size) {
-                    if (naturalCompletion) completeCurrentChapter() else nextChapter()
-                    return false
-                }
-            } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
-            // 页内切段不引入换行符，累加会漂移，用段落绝对位置重算
-            readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
-            return true
-        }
-
         @Deprecated("Deprecated in Java")
         override fun onError(s: String) {
             if (!isCurrentUtterance(s)) return
             LogUtils.d(TAG, "onError nowSpeak:$nowSpeak pageIndex:$pageIndex s:$s")
-            val paragraphAdvanced = nextParagraph(naturalCompletion = true)
+            val paragraphAdvanced = updateNextPos(naturalCompletion = true)
             if (paragraphAdvanced &&
                 !pause &&
                 (hasSpeechPlaybackQueue || ReadConfig.ttsParagraphInterval > 0)

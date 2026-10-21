@@ -429,9 +429,9 @@ data class ReadAloudPlayerSourceState(
     val finishCurrentChapterAfterTimer: Boolean,
 )
 
-/** 语速调节范围，与经典朗读控制（ReadAloudScreen 的 valueRange = 0f..80f）保持一致。 */
-internal const val READ_ALOUD_SPEED_MIN = 0
-internal const val READ_ALOUD_SPEED_MAX = 80
+/** 语速调节范围，与经典朗读控制（ReadAloudScreen 的 valueRange = 5f..30f）保持一致。 */
+internal const val READ_ALOUD_SPEED_MIN = 5
+internal const val READ_ALOUD_SPEED_MAX = 30
 
 internal fun coerceReadAloudSpeed(value: Int): Int =
     value.coerceIn(READ_ALOUD_SPEED_MIN, READ_ALOUD_SPEED_MAX)

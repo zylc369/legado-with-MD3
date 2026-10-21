@@ -3,6 +3,7 @@ package io.legado.app.help.readaloud.playback
 import io.legado.app.domain.model.settings.ReadAloudContentSplitMode
 import io.legado.app.feature.reader.core.readaloud.ReaderReadAloudChapter
 import io.legado.app.feature.reader.core.readaloud.ReaderReadAloudParagraph
+import com.opensecurity.customtts.model.CustomTtsSegment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,5 +78,39 @@ class HybridChapterBuilderTest {
         // 尾段并回 → 最后一段包含尾巴，位置从 20 开始
         assertEquals(built.segments.size, built.chapterPositions.size)
         assertEquals(0, built.chapterPositions.first())
+    }
+
+    private fun twoSegments() = HybridChapterBuilder.Built(
+        segments = listOf(
+            CustomTtsSegment("abcdefghij", 0, 10),
+            CustomTtsSegment("klmnopqrst", 10, 20),
+        ),
+        chapterPositions = listOf(0, 10),
+    )
+
+    @Test
+    fun `对齐到分段内部时裁剪首段文字`() {
+        val plan = HybridChapterBuilder.alignToStart(twoSegments(), requestedStart = 13)
+        assertEquals(1, plan.startIndex)
+        assertEquals(13, plan.startChapterPosition)
+        assertEquals("abcdefghij", plan.segments[0].text)
+        assertEquals("nopqrst", plan.segments[1].text)
+        assertEquals(13, plan.chapterPositions[1])
+    }
+
+    @Test
+    fun `对齐到分段边界时不裁剪`() {
+        val plan = HybridChapterBuilder.alignToStart(twoSegments(), requestedStart = 10)
+        assertEquals(1, plan.startIndex)
+        assertEquals(10, plan.startChapterPosition)
+        assertEquals("klmnopqrst", plan.segments[1].text)
+    }
+
+    @Test
+    fun `起点为 0 时保持首段完整`() {
+        val plan = HybridChapterBuilder.alignToStart(twoSegments(), requestedStart = 0)
+        assertEquals(0, plan.startIndex)
+        assertEquals(0, plan.startChapterPosition)
+        assertEquals("abcdefghij", plan.segments[0].text)
     }
 }

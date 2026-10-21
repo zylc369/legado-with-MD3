@@ -16,6 +16,7 @@ import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.compatDsString
 import io.legado.app.help.config.compatDsValue
+import io.legado.app.help.readaloud.playback.ReadAloudSpeed
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -109,7 +110,7 @@ internal fun Preferences.toReadAloudSettings(): ReadAloudSettings = ReadAloudSet
         compatDsValue(ReadAloudKeys.TimerChapters, 0)
     ),
     ttsFollowSys = compatDsValue(ReadAloudKeys.TtsFollowSys, true),
-    ttsSpeechRate = compatDsValue(ReadAloudKeys.TtsSpeechRate, 5),
+    ttsSpeechRate = compatTtsSpeechRate(),
     speechAnalysisMode = compatDsValue(ReadAloudKeys.SpeechAnalysisMode, "rule"),
     speechAnalysisReasoningLevel = compatDsValue(
         ReadAloudKeys.SpeechAnalysisReasoningLevel,
@@ -144,6 +145,21 @@ private fun Preferences.compatContentSplitMode(): String {
     }
 }
 
+/**
+ * 朗读语速迁移：旧值按 `(值 + 5) / 10` 实际生效，新存储为“十分之一倍速”。
+ *
+ * 为保持用户当前听感，旧值 +5 后写入新 key（旧 2 → 7 = 0.7x，旧 20 → 25 = 2.5x）。
+ * 新范围是 0.5x..3.0x；旧值超过 3.0x 的统一压到 30（有意收窄，发布说明需注明）。
+ * 新 key 一旦存在就不再迁移；旧 key 仅作为一次性来源。
+ */
+private fun Preferences.compatTtsSpeechRate(): Int {
+    val migrated = compatDsValue(ReadAloudKeys.TtsSpeechRateV2, -1)
+    if (migrated >= 0) return migrated.coerceIn(ReadAloudSpeed.MIN_TENTHS, ReadAloudSpeed.MAX_TENTHS)
+    val legacy = compatDsValue(ReadAloudKeys.TtsSpeechRate, -1)
+    if (legacy < 0) return ReadAloudSpeed.DEFAULT_TENTHS
+    return (legacy + 5).coerceIn(ReadAloudSpeed.MIN_TENTHS, ReadAloudSpeed.MAX_TENTHS)
+}
+
 private fun Preferences.compatContentSplitSymbols(): Set<String> =
     compatDsValue(ReadAloudKeys.ReadAloudContentSplitSymbols, emptySet())
 
@@ -173,7 +189,7 @@ internal fun ReadAloudSettings.toPrefMap(): Map<String, Any?> = mapOf(
     PreferKey.readAloudTimerMode to timerMode,
     PreferKey.readAloudTimerChapters to timerChapters,
     PreferKey.ttsFollowSys to ttsFollowSys,
-    PreferKey.ttsSpeechRate to ttsSpeechRate,
+    PreferKey.readAloudTtsSpeechRateV2 to ttsSpeechRate,
     PreferKey.speechAnalysisMode to speechAnalysisMode,
     PreferKey.speechAnalysisReasoningLevel to speechAnalysisReasoningLevel,
     PreferKey.useMultiSpeaker to useMultiSpeaker,
@@ -218,6 +234,7 @@ private object ReadAloudKeys {
     val TimerChapters = intPreferencesKey(PreferKey.readAloudTimerChapters)
     val TtsFollowSys = booleanPreferencesKey(PreferKey.ttsFollowSys)
     val TtsSpeechRate = intPreferencesKey(PreferKey.ttsSpeechRate)
+    val TtsSpeechRateV2 = intPreferencesKey(PreferKey.readAloudTtsSpeechRateV2)
     val SpeechAnalysisMode = stringPreferencesKey(PreferKey.speechAnalysisMode)
     val SpeechAnalysisReasoningLevel =
         stringPreferencesKey(PreferKey.speechAnalysisReasoningLevel)

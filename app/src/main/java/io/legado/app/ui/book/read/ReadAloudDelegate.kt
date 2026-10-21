@@ -307,7 +307,7 @@ class ReadAloudDelegate(
 
     fun setTtsSpeechRate(value: Int) {
         scope.launch {
-            readAloudSettingsRepository.update { it.copy(ttsSpeechRate = value.coerceIn(0, 80)) }
+            readAloudSettingsRepository.update { it.copy(ttsSpeechRate = value.coerceIn(5, 30)) }
             ReadAloud.upTtsSpeechRate(context)
         }
         host.updateState { it.copy(readAloudTtsSpeechRate = value) }

@@ -48,6 +48,7 @@ class CloudTtsAudioSynthesizer(
         styleOverride: String = "",
         characterPerformance: CharacterPerformanceProfile? = null,
         roleType: SpeechRoleType = SpeechRoleType.Unknown,
+        speedOverride: Float? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         val engine = engineGateway.get(voice.engineId) ?: return@withContext false
         if (!engine.enabled) return@withContext false
@@ -84,7 +85,7 @@ class CloudTtsAudioSynthesizer(
                 style = mappedStyle ?: config.style,
                 role = config.role,
                 instructions = instructions,
-                speed = config.speed,
+                speed = speedOverride ?: config.speed,
                 pitch = config.pitch,
                 volume = config.volume,
                 format = config.format,

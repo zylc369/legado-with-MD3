@@ -33,6 +33,7 @@ import io.legado.app.R
 import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.book.read.ReadBookUiState
+import io.legado.app.ui.book.readaloud.player.formatReadAloudSpeedLabel
 import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
@@ -138,8 +139,9 @@ fun ReadAloudContent(
             title = stringResource(R.string.read_aloud_speed),
             description = stringResource(R.string.read_aloud_speed_summary),
             value = ttsSpeechRate.toFloat(),
-            valueRange = 0f..80f,
-            steps = 79,
+            valueRange = 5f..30f,
+            steps = 24,
+            valueFormat = { formatReadAloudSpeedLabel(it.toInt()) },
             enabled = !state.readAloudTtsFollowSys,
             // 拖动中写设置会与外部 value 回流打架（滑块来回跳），松手才提交
             onValueChange = { speechRatePreview = it },

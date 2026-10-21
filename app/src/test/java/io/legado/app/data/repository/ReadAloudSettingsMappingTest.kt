@@ -77,6 +77,36 @@ class ReadAloudSettingsMappingTest {
 
         assertEquals(AiReasoningLevel.OFF.storageValue, settings.speechAnalysisReasoningLevel)
     }
+
+    @Test
+    fun `旧语速按实际倍速迁移到十分之一倍速`() {
+        fun migrate(value: Int) = mapOf<String, Any?>(PreferKey.ttsSpeechRate to value)
+            .toTestPreferences()
+            .toReadAloudSettings()
+            .ttsSpeechRate
+
+        assertEquals(7, migrate(2)) // 旧 (2+5)/10 = 0.7x -> 新 7 = 0.7x
+        assertEquals(25, migrate(20)) // 旧 (20+5)/10 = 2.5x -> 新 25 = 2.5x
+        // 新范围上限 3.0x；旧值 >3.0x 统一压到 30（有意收窄）
+        assertEquals(30, migrate(26))
+        assertEquals(30, migrate(80))
+    }
+
+    @Test
+    fun `新语速键存在时不再迁移`() {
+        val settings = mapOf<String, Any?>(PreferKey.readAloudTtsSpeechRateV2 to 25)
+            .toTestPreferences()
+            .toReadAloudSettings()
+
+        assertEquals(25, settings.ttsSpeechRate)
+    }
+
+    @Test
+    fun `全新安装语速默认1倍`() {
+        val settings = emptyMap<String, Any?>().toTestPreferences().toReadAloudSettings()
+
+        assertEquals(10, settings.ttsSpeechRate)
+    }
 }
 
 private const val CAPSULE_OFFSET_X = "read_aloud_capsule_offset_x"
@@ -91,7 +121,7 @@ private fun readAloudMappingSamples(): List<ReadAloudSettings> {
         capsuleOffsetX = 3.25f,
         capsuleOffsetY = -4.5f,
         ttsTimer = 33,
-        ttsSpeechRate = 44,
+        ttsSpeechRate = 25,
         speechAnalysisMode = "ai",
         speechAnalysisReasoningLevel = "medium",
         defaultInterface = "player",
@@ -154,7 +184,7 @@ private fun ReadAloudSettings.expectedPrefMap(): Map<String, Any?> = mapOf(
     PreferKey.readAloudTimerMode to timerMode,
     PreferKey.readAloudTimerChapters to timerChapters,
     PreferKey.ttsFollowSys to ttsFollowSys,
-    PreferKey.ttsSpeechRate to ttsSpeechRate,
+    PreferKey.readAloudTtsSpeechRateV2 to ttsSpeechRate,
     PreferKey.speechAnalysisMode to speechAnalysisMode,
     PreferKey.speechAnalysisReasoningLevel to speechAnalysisReasoningLevel,
     PreferKey.useMultiSpeaker to useMultiSpeaker,

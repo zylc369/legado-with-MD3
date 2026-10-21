@@ -11,6 +11,7 @@ import io.legado.app.domain.gateway.ReadSettingsGateway
 import io.legado.app.domain.gateway.ThemeSettingsGateway
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.compatDsBoolean
+import io.legado.app.help.readaloud.playback.ReadAloudSpeed
 import io.legado.app.utils.isNightMode
 import io.legado.app.utils.sysConfiguration
 import org.koin.core.context.GlobalContext
@@ -82,7 +83,11 @@ object ReadConfig {
     val maxLengthWithNoToc get() = read.maxLengthWithNoToc
     val selectVibrator get() = read.selectVibrator
 
-    val speechRatePlay get() = if (aloud.ttsFollowSys) 5 else aloud.ttsSpeechRate
+    val speechRatePlay get() = if (aloud.ttsFollowSys) {
+        ReadAloudSpeed.DEFAULT_TENTHS
+    } else {
+        aloud.ttsSpeechRate
+    }
     val ttsEngine get() = aloud.ttsEngine
     val ttsFollowSys get() = aloud.ttsFollowSys
     val ttsSpeechRate get() = aloud.ttsSpeechRate
