@@ -330,12 +330,6 @@ abstract class BaseReadAloudService : BaseService(),
     protected open val useSpeechPlaybackQueue: Boolean = false
 
     /**
-     * 引擎是否朗读章节标题（队列与非队列路径一致）。
-     * 混合引擎不读标题：清洗分段只覆盖正文，标题不应消耗首段兜底策略/远端请求。
-     */
-    protected open val speakChapterTitle: Boolean = true
-
-    /**
      * 本次会话是否采用多角色 cue 队列。
      * 混合引擎始终走自身清洗分段单元（锚点表），不采用 cue 队列——
      * 与旧实现“playCustomHybrid 无视队列重建分段”的语义一致。
@@ -588,8 +582,26 @@ abstract class BaseReadAloudService : BaseService(),
                 splitByPage = preparedReadAloudByPage,
                 policy = splitPolicy,
             )
-            if (preparedUnits.isEmpty()) {
-                AppLog.put("启动朗读失败：章节无正文")
+            val moveToLast = toLast
+            // 卷/空章只有标题、没有正文：能读标题的引擎照常读；不读标题的引擎（混合）
+            // 直接跳到下一章，绝不能静默停住（服务仍在运行态、界面显示播放中却没有声音）。
+            val unitsDecision = decideReadAloudChapterUnits(
+                unitCount = preparedUnits.size,
+                chapterTitle = preparedChapter.title,
+                startsAtChapterBeginning = startsAtChapterBeginning,
+                moveToLast = moveToLast,
+            )
+            val shouldReadChapterTitle = unitsDecision.readTitle
+            if (unitsDecision.skipChapter) {
+                AppLog.putDebug(
+                    "朗读：章节无正文（卷/空章），跳转下一章 chapter=${preparedChapter.chapterIndex}"
+                )
+                this@BaseReadAloudService.pageIndex = pageIndex
+                readerReadAloudChapter = preparedChapter
+                replacePlaybackUnits(emptyList())
+                launch(Main) {
+                    if (generation == prepareReadAloudGeneration) nextChapter()
+                }
                 return@execute
             }
             val preparedSpeechPlan = buildSpeechPlan(
@@ -610,7 +622,6 @@ abstract class BaseReadAloudService : BaseService(),
             var preparedPlaybackCursor = preparedPlaybackQueue.cursorAt(preparedReadAloudNumber)
             val usePreparedPlaybackQueue = useSpeechPlaybackQueue &&
                     !preparedPlaybackQueue.isEmpty && adoptsSpeechPlaybackQueue()
-            val moveToLast = toLast
             var preparedNowSpeak = 0
             var preparedParagraphStartPos = 0
             if (usePreparedPlaybackQueue) {
@@ -621,9 +632,13 @@ abstract class BaseReadAloudService : BaseService(),
                     preparedNowSpeak = cursor.cueIndex
                     preparedParagraphStartPos = cursor.offset
                 }
-            } else if (moveToLast) {
+            } else if (moveToLast && preparedUnits.isNotEmpty()) {
                 preparedNowSpeak = preparedUnits.indexOfLast { !it.isChapterTitle }
                     .coerceAtLeast(0)
+                preparedParagraphStartPos = 0
+            } else if (preparedUnits.isEmpty()) {
+                // 只有标题的章节：等下面补入标题单元，游标从 0 开始。
+                preparedNowSpeak = 0
                 preparedParagraphStartPos = 0
             } else {
                 // 唯一起点定位：章节位置 → (单元, 单元内偏移)。清洗单元经锚点表精确对齐，
@@ -639,8 +654,6 @@ abstract class BaseReadAloudService : BaseService(),
                 preparedNowSpeak = cursor.first
                 preparedParagraphStartPos = cursor.second
             }
-            val shouldReadChapterTitle = !moveToLast && startsAtChapterBeginning &&
-                    preparedChapter.title.isNotBlank() && speakChapterTitle
             if (shouldReadChapterTitle) {
                 if (usePreparedPlaybackQueue) {
                     preparedPlaybackQueue =
@@ -1862,6 +1875,31 @@ internal fun estimatedReadAloudTimeMs(
 ): Long {
     if (chars <= 0 || charsPerSecond <= 0f) return 0L
     return (chars * 1000.0 / charsPerSecond).toLong()
+}
+
+/**
+ * 卷/标题章与普通章节的朗读单元决策（所有引擎一致）。
+ *
+ * - 从章首开始：先读标题（卷章只有标题时这就是本章全部内容，读完自然推进下一章）；
+ * - 无正文也无标题：跳过该章（绝不能静默停住——服务仍在运行态却没有任何声音）；
+ * - 从章中/章末开始：不读标题。
+ */
+internal data class ReadAloudChapterUnitsDecision(
+    val readTitle: Boolean,
+    val skipChapter: Boolean,
+)
+
+internal fun decideReadAloudChapterUnits(
+    unitCount: Int,
+    chapterTitle: String,
+    startsAtChapterBeginning: Boolean,
+    moveToLast: Boolean,
+): ReadAloudChapterUnitsDecision {
+    val readTitle = !moveToLast && startsAtChapterBeginning && chapterTitle.isNotBlank()
+    return ReadAloudChapterUnitsDecision(
+        readTitle = readTitle,
+        skipChapter = unitCount == 0 && !readTitle,
+    )
 }
 
 /** 当前朗读单元的高亮区间（含标题标志；标题坐标系独立）。 */

@@ -64,6 +64,7 @@ import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.model.CacheBook
 import io.legado.app.model.ImageProvider
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudResumePolicy
 import io.legado.app.model.ReadBook
 import io.legado.app.model.ReadSessionState
 import io.legado.app.model.analyzeRule.AnalyzeRule
@@ -139,14 +140,6 @@ class ReadBookController(
     // Fallback handler for effects not yet migrated to controller
     var onUnhandledEffect: (ReadBookEffect) -> Unit = {}
     var onClose: (() -> Unit)? = null
-
-    // Page state — moved from Activity
-    var pageChanged: Boolean = false
-        private set
-
-    fun resetPageChanged() {
-        pageChanged = false
-    }
 
     private val readerImageCache = object : LruCache<String, android.graphics.Bitmap>(32 * 1024 * 1024) {
         override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.allocationByteCount
@@ -641,11 +634,8 @@ class ReadBookController(
                     activity.longToastOnUi(activity.getString(R.string.sync_book_progress_success))
                 },
             )
-            ReaderTapAction.TOGGLE_READ_ALOUD_PAUSE -> if (BaseReadAloudService.isPlay()) {
-                ReadAloud.pause(activity)
-            } else {
-                ReadAloud.resume(activity)
-            }
+            ReaderTapAction.TOGGLE_READ_ALOUD_PAUSE ->
+                if (BaseReadAloudService.isRun) ReadAloudResumePolicy.toggle(activity)
         }
     }
 
@@ -902,6 +892,7 @@ class ReadBookController(
     /** 同步平移页窗口并发布；返回发布的窗口，供滚动渲染层当帧折算使用。 */
     private fun publishDirectReaderWindow(index: Int): ReaderPageWindow? {
         if (directReaderPages.isEmpty()) return null
+        ensureReaderPaginationSnapshot()
         val boundedIndex = ensureBoundaryPlaceholderPages(index.coerceIn(directReaderPages.indices))
         directReaderPageIndex = boundedIndex
         viewModel.updateComposeReaderPage(
@@ -1081,7 +1072,6 @@ class ReadBookController(
         ) ?: return false
         commitManualReaderPage(globalIndex)
         publishDirectReaderWindow(globalIndex)
-        pageChanged = true
         viewModel.startBackupJob()
         return true
     }
@@ -1599,6 +1589,26 @@ class ReadBookController(
     }
 
     /**
+     * 分页快照是页缓存的投影：`ReadBook.clearTextChapter()`/换排版/跳转会清空快照，
+     * 但页缓存可能仍保留成型页；若此后没有新的分页批次提交（页已存在会被跳过），
+     * 快照会一直为空，朗读启动会等分页超时、按钮点不亮。
+     * 这里在快照缺失且当前章页已成型（且不在逐页流出中）时立即按页缓存重建。
+     */
+    private fun ensureReaderPaginationSnapshot() {
+        val chapterIndex = ReadBook.durChapterIndex
+        val hasShapedPages = directReaderPages.any {
+            it.id.chapterIndex == chapterIndex && !it.isPlaceholder
+        }
+        if (!shouldRebuildPaginationSnapshot(
+                hasSnapshot = ReadBook.readerPagination(chapterIndex) != null,
+                hasShapedPages = hasShapedPages,
+                isStreaming = chapterIndex in directReaderStreamingChapters,
+            )
+        ) return
+        publishReaderPaginationSnapshots(ReadBook.readerPaginationGeneration)
+    }
+
+    /**
      * 用当前页缓存 [directReaderPages] 重建窗口内的分页快照。
      *
      * 快照是朗读与章节内翻页（`ReadBook.moveToNextPage`/`readerPagination()`）的读取契约，
@@ -1714,11 +1724,15 @@ class ReadBookController(
         registerTimeBatteryReceiver()
         networkChangedListener.onNetworkChanged = viewModel::onNetworkChanged
         networkChangedListener.register()
+        ReadAloudResumePolicy.startFromVisiblePosition = readAloudStartFromVisiblePosition
     }
 
     /** Release listeners even if the route's effect collector has already stopped. */
     fun onPause() {
         stopAutoPage()
+        if (ReadAloudResumePolicy.startFromVisiblePosition === readAloudStartFromVisiblePosition) {
+            ReadAloudResumePolicy.startFromVisiblePosition = null
+        }
         unregisterTimeBatteryReceiver()
         networkChangedListener.unRegister()
         upSystemUiVisibility()
@@ -2160,7 +2174,7 @@ class ReadBookController(
         }
     }
 
-    // R2.3：pageChanged / contentLoadFinish / onLayoutPageCompleted 的 Effect 只有本类
+    // R2.3：contentLoadFinish / onLayoutPageCompleted 的 Effect 只有本类
     // 自产自销（postRender → 本类 handleEffect），从不经过 ViewModel 的 _effects。
     // 它们不属于 VM 的对外协议，故内联到渲染方法里，三个 Effect 类型随之从
     // ReadBookEffect 删除。仍在 postRender 上的 UpContent/UpPageAnim/CancelSelect
@@ -2168,7 +2182,6 @@ class ReadBookController(
 
     override fun pageChanged() {
         handler.post {
-            this.pageChanged = true
             publishReaderPageWindow()
             viewModel.startBackupJob()
         }
@@ -2502,23 +2515,13 @@ class ReadBookController(
 
     private fun toggleReadAloud() {
         viewModel.onIntent(ReadBookIntent.StopAutoPage)
-        when {
-            !BaseReadAloudService.isRun -> {
-                ReadAloud.upReadAloudClass()
-                if (!readAloudFromComposeVisibleStart() && !readAloudFromVisiblePage()) {
-                    ReadBook.readAloud()
-                }
-            }
+        ReadAloudResumePolicy.toggle(activity)
+    }
 
-            BaseReadAloudService.pause -> {
-                val restartFromVisibleStart = pageChanged &&
-                    (readAloudFromComposeVisibleStart() || readAloudFromVisiblePage())
-                pageChanged = false
-                if (!restartFromVisibleStart) ReadAloud.resume(activity)
-            }
-
-            else -> ReadAloud.pause(activity)
-        }
+    /** 阅读页注入的“新朗读起点 = 当前可见位置”能力（挂载时安装、离屏时清除）。 */
+    private val readAloudStartFromVisiblePosition: () -> Boolean = {
+        ensureReaderPaginationSnapshot()
+        readAloudFromComposeVisibleStart() || readAloudFromVisiblePage()
     }
 
     private fun toggleAutoPage() {
@@ -2721,7 +2724,6 @@ class ReadBookController(
             commitManualReaderPage(navigation.pageIndex)
         }
         val window = publishDirectReaderWindow(navigation.pageIndex)
-        pageChanged = true
         viewModel.startBackupJob()
         return window
     }
@@ -2807,7 +2809,6 @@ class ReadBookController(
                 )
                 directReaderPageIndex = targetIndex
                 val window = publishDirectReaderWindow(targetIndex)
-                pageChanged = true
                 viewModel.startBackupJob()
                 return window
             }
@@ -2828,7 +2829,6 @@ class ReadBookController(
         val placeholderIndex = pages.indexOfFirst { it === placeholder }
         directReaderPageIndex = placeholderIndex
         val window = publishDirectReaderWindow(placeholderIndex)
-        pageChanged = true
         viewModel.startBackupJob()
         return window
     }
@@ -3184,3 +3184,13 @@ data class SelectionMenuConfigItem(
     val enabled: Boolean? = null,
     val showState: Int? = null
 )
+
+/**
+ * 快照重建条件：缺失 + 当前章已有成型页 + 不在逐页流出中。
+ * （逐页流出期间页表不完整，提前发布会得到错误页首。）
+ */
+internal fun shouldRebuildPaginationSnapshot(
+    hasSnapshot: Boolean,
+    hasShapedPages: Boolean,
+    isStreaming: Boolean,
+): Boolean = !hasSnapshot && hasShapedPages && !isStreaming

@@ -29,6 +29,10 @@ class P2pClient(
     private val punchTimeoutMs: Int = 1500,
     /** 测试注入（生产为 null）——非空时跳过打洞/中继，直接创建会话。 */
     private val sessionFactory: SessionFactory? = null,
+    /** 建链阶段日志（耗时/失败原因）；默认丢弃。 */
+    private val log: (String) -> Unit = {},
+    /** 单次建链总预算；超时即失败，避免中继 RTT 高时无限堆积。 */
+    private val establishBudgetMs: Int = 30_000,
 ) : TtsClient {
     class P2pException(message: String, cause: Throwable? = null)
         : Exception(message, cause)
@@ -70,15 +74,25 @@ class P2pClient(
         req["method"] = method; req["path"] = path
         req["body"] = body
         if (token.isNotEmpty()) req["token"] = token
-        val session = ensureSession()
+        val requestStarted = System.currentTimeMillis()
+        val session = try {
+            ensureSession()
+        } catch (e: Exception) {
+            log("建链失败（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
+            throw e
+        }
         val resp = try {
             session.send(req)
             awaitResponse(session, msgId, timeoutMs)
         } catch (e: Exception) {
             dropSession()
+            log("请求失败 $method $path（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
             throw P2pException("请求失败: ${e.message}", e)
         }
         val status = (resp["status"] as? Number)?.toInt() ?: 0
+        log(
+            "请求完成 $method $path status=$status（${System.currentTimeMillis() - requestStarted}ms）"
+        )
         return Triple(status, resp["mime"] as? String ?: "application/octet-stream",
             resp["body"])
     }
@@ -101,23 +115,37 @@ class P2pClient(
 
     private fun ensureSession(): Session {
         session?.let { if (it.alive) return it else session = null }
+        val startedAt = System.currentTimeMillis()
+        fun budgetLeft(): Long = establishBudgetMs - (System.currentTimeMillis() - startedAt)
         // 测试注入: 跳过打洞/中继，直接创建会话
         sessionFactory?.let { factory ->
             val s = factory.create()
             session = s
             return s
         }
-        // ① 打洞直连
-        try {
-            val s = punchAndConnect()
-            session = s
-            return s
-        } catch (_: Exception) {
-            // 落中继
+        // ① 打洞直连（本机与节点常不同子网，失败属常态；耗时计入预算）
+        if (budgetLeft() > 0) {
+            val punchStarted = System.currentTimeMillis()
+            try {
+                val s = punchAndConnect()
+                session = s
+                log("打洞直连成功（${System.currentTimeMillis() - punchStarted}ms）")
+                return s
+            } catch (e: Exception) {
+                log(
+                    "打洞失败（${System.currentTimeMillis() - punchStarted}ms）: " +
+                        (e.message ?: e.javaClass.simpleName)
+                )
+            }
         }
         // ② 中继兜底
+        if (budgetLeft() <= 0) {
+            throw P2pException("建链超时（打洞已用尽 ${establishBudgetMs}ms）")
+        }
+        val relayStarted = System.currentTimeMillis()
         val s = relayConnect()
         session = s
+        log("中继建链完成（${System.currentTimeMillis() - relayStarted}ms）")
         return s
     }
 
@@ -184,10 +212,14 @@ class P2pClient(
         val sig = SignalConn(relayHost, relayPort, psk)
         var data: SignalConn? = null
         try {
+            val lookupStarted = System.currentTimeMillis()
             val resp = sig.call(mapOf("t" to "lookup", "node" to nodeId))
             val sid = resp["sid"] as? String
                 ?: throw P2pException("节点不可达: ${resp["error"]}")
+            log("中继 lookup ${System.currentTimeMillis() - lookupStarted}ms")
+            val openStarted = System.currentTimeMillis()
             val ready = sig.call(mapOf("t" to "relay_open", "node" to nodeId, "sid" to sid))
+            log("中继 relay_open ${System.currentTimeMillis() - openStarted}ms")
             if (ready["t"] != "relay_ready") {
                 throw P2pException("relay_open 失败: ${ready["code"] ?: ready["t"]}")
             }

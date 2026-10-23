@@ -129,4 +129,17 @@ class P2pClientTest {
         assertEquals(false, c.ping())
         assertTrue(session.closed)
     }
+
+    @Test
+    fun `请求阶段输出可落盘的诊断日志`() {
+        val logs = mutableListOf<String>()
+        val session = FakeSession { okResponse(it) }
+        val c = P2pClient(
+            "127.0.0.1", 1, psk, "node",
+            sessionFactory = { session },
+            log = { logs += it },
+        )
+        c.request("POST", "/api/tts", mapOf("text" to "x"))
+        assertTrue(logs.any { it.contains("请求完成") && it.contains("status=200") })
+    }
 }

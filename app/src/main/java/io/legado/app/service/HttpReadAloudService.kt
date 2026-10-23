@@ -231,9 +231,6 @@ class HttpReadAloudService : BaseReadAloudService(),
         }.getOrDefault(false)
     }
 
-    override val speakChapterTitle: Boolean
-        get() = !isCustomHybridMode()
-
     override fun adoptsSpeechPlaybackQueue(): Boolean = !isCustomHybridMode()
 
     /**
@@ -521,7 +518,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                 )
                 hybridCoordinator = coordinator
                 coordinator.start(units.map { it.text })
-                coordinator.prefetch(startIndex)
+                if (!startUnit.isChapterTitle) coordinator.prefetch(startIndex)
                 AppLog.putDebug(
                     "混合朗读: units=${units.size} start=$startIndex" +
                         " defaultVoice=${settings.defaultVoiceId.ifEmpty { "<引擎默认>" }}" +
@@ -591,11 +588,11 @@ class HttpReadAloudService : BaseReadAloudService(),
             moveToUnit(index)
             upMediaMetadata(showContent = true)
 
-            // 预取后 2 段：远端有本段完整播放时间来完成。
+            // 预取后 2 段：远端有本段完整播放时间来完成（标题段不预取远端）。
             coordinator.prefetch(index + 1)
             coordinator.prefetch(index + 2)
 
-            val remote = coordinator.remoteReady(index)
+            val remote = if (units[index].isChapterTitle) null else coordinator.remoteReady(index)
             val decision = coordinator.decide(index, remote != null)
             coordinator.drainSwitches().forEach { switch ->
                 toastOnUi(
@@ -667,7 +664,7 @@ class HttpReadAloudService : BaseReadAloudService(),
      */
     private suspend fun speakHybridSystem(unit: PlaybackUnit) {
         val settings = customTtsSettingsGateway.currentSettings
-        val map = unit.map ?: return
+        val map = unit.map
         hybridCurrentSystemTts = true
         playIndexJob?.cancel()
         withContext(Main) {
@@ -683,19 +680,28 @@ class HttpReadAloudService : BaseReadAloudService(),
         AppLog.putDebug(
             "混合TTS: 段 $nowSpeak 系统兜底 speak rate=$speechRate" +
                 " pos=${unit.startPosition} textLen=${unit.text.length}" +
-                " anchors=${map.anchors.size}" +
+                " anchors=${map?.anchors?.size ?: 0} title=${unit.isChapterTitle}" +
                 " globalPlayback=${exoPlayer.playbackParameters.speed}"
         )
         // 与普通系统朗读共用同一套进度契约（publishSystemTtsStart/Range）。
-        publishSystemTtsStart(unit.startPosition)
+        // 标题单元没有正文位置（独立坐标系）：只播报，不推进正文进度/高亮区间。
+        if (map != null) {
+            publishSystemTtsStart(unit.startPosition)
+        } else {
+            upMediaMetadata(showContent = true)
+        }
         var rangeSeen = false
-        val estimateProgressJob = lifecycleScope.launch {
-            val step = ReadAloudProgressEstimator.stepMillis(speechRate)
-            for (i in 1 until unit.text.length) {
-                delay(step)
-                if (rangeSeen || !isHybridDriverActive || playbackUnits.getOrNull(nowSpeak) !== unit) break
-                paragraphStartPos = i
-                publishSystemTtsRange(map.positionAt(i))
+        val estimateProgressJob = map?.let { unitMap ->
+            lifecycleScope.launch {
+                val step = ReadAloudProgressEstimator.stepMillis(speechRate)
+                for (i in 1 until unit.text.length) {
+                    delay(step)
+                    if (rangeSeen || !isHybridDriverActive ||
+                        playbackUnits.getOrNull(nowSpeak) !== unit
+                    ) break
+                    paragraphStartPos = i
+                    publishSystemTtsRange(unitMap.positionAt(i))
+                }
             }
         }
         // 按字数/倍速估算上限，避免长句或 0.5x 时被固定超时截断；15s 只作为下限。
@@ -713,7 +719,9 @@ class HttpReadAloudService : BaseReadAloudService(),
                     speechRate = speechRate,
                 ) { offset ->
                     // 旧段迟到的 onRangeStart 不得污染当前段/当前章。
-                    if (isHybridDriverActive && playbackUnits.getOrNull(nowSpeak) === unit) {
+                    if (map != null && isHybridDriverActive &&
+                        playbackUnits.getOrNull(nowSpeak) === unit
+                    ) {
                         rangeSeen = true
                         paragraphStartPos = offset
                         publishSystemTtsRange(map.positionAt(offset))
@@ -728,7 +736,7 @@ class HttpReadAloudService : BaseReadAloudService(),
             )
             false
         } finally {
-            estimateProgressJob.cancel()
+            estimateProgressJob?.cancel()
         }
         AppLog.putDebug("混合TTS: 段 $nowSpeak 系统兜底 speak 结束 ok=$ok")
         if (!ok) {

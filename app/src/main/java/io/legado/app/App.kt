@@ -23,6 +23,7 @@ import io.legado.app.constant.AppConst.channelIdBookSourceCheck
 import io.legado.app.constant.AppConst.channelIdDownload
 import io.legado.app.constant.AppConst.channelIdReadAloud
 import io.legado.app.constant.AppConst.channelIdWeb
+import io.legado.app.constant.AppLog
 import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
@@ -207,6 +208,9 @@ class App : Application(), SingletonImageLoader.Factory {
             LogUtils.d("App", "onCreate")
             // remote-link P2P 网关（未配置/未启用 = 零开销不监听）
             runCatching {
+                com.opensecurity.remotelink.gateway.RemoteLinkManager.setLogSink { message ->
+                    AppLog.putDebug("RemoteLink: $message")
+                }
                 com.opensecurity.remotelink.gateway.RemoteLinkManager.init(this@App)
             }.onFailure { LogUtils.d("App", "remote-link init: ${it.message}") }
             LogUtils.logDeviceInfo()

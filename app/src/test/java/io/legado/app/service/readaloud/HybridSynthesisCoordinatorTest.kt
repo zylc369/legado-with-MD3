@@ -29,6 +29,7 @@ class HybridSynthesisCoordinatorTest {
         remoteSynth: suspend (String, CustomTtsVoiceParams) -> File?,
         fallbackSynth: suspend (String, Float) -> File?,
         fallbackEnabled: Boolean = true,
+        nowMs: () -> Long = System::currentTimeMillis,
     ) = HybridSynthesisCoordinator(
         scope = this,
         policy = policy,
@@ -38,6 +39,7 @@ class HybridSynthesisCoordinatorTest {
         remoteSynth = remoteSynth,
         fallbackSynth = fallbackSynth,
         fallbackEnabled = fallbackEnabled,
+        nowMs = nowMs,
         ioDispatcher = UnconfinedTestDispatcher(testScheduler),
     )
 
@@ -156,5 +158,33 @@ class HybridSynthesisCoordinatorTest {
         coordinator.prefetch(0)
         coordinator.stop()
         assertTrue(!completed)
+    }
+
+    @Test
+    fun `远端连续失败进入冷却后停止请求，冷却结束后重试`() = runTest(UnconfinedTestDispatcher()) {
+        var now = 1_000L
+        var remoteCalls = 0
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ ->
+                remoteCalls++
+                null
+            },
+            fallbackSynth = { _, _ -> null },
+            nowMs = { now },
+        )
+        coordinator.start(listOf("a", "b", "c"))
+
+        coordinator.prefetch(0)
+        assertEquals(1, remoteCalls)
+        coordinator.prefetch(1)
+        assertEquals(2, remoteCalls)
+        // 达到阈值进入冷却：冷却期内不再发起远端请求，兜底照常
+        coordinator.prefetch(2)
+        assertEquals(2, remoteCalls)
+
+        now += 30_000
+        coordinator.prefetch(2)
+        assertEquals(3, remoteCalls)
     }
 }

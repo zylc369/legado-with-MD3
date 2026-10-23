@@ -16,6 +16,7 @@ import io.legado.app.domain.model.settings.ReadAloudContentSplitMode
 import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.feature.reader.core.readaloud.ReaderReadAloudChapter
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudResumePolicy
 import io.legado.app.model.ReadAloudSessionStore
 import io.legado.app.model.ReadBook
 import io.legado.app.model.reader.ReaderChapterInput
@@ -221,11 +222,7 @@ class ReadAloudPlayerCoordinator(
     }
 
     fun togglePause() {
-        when {
-            !BaseReadAloudService.isRun -> ReadBook.readAloud()
-            BaseReadAloudService.pause -> ReadAloud.resume(application)
-            else -> ReadAloud.pause(application)
-        }
+        ReadAloudResumePolicy.toggle(application)
     }
 
     /** 悬浮胶囊与播放界面的停止入口共用。 */

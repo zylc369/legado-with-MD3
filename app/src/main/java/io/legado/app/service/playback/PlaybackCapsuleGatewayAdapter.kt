@@ -12,6 +12,7 @@ import io.legado.app.domain.model.readaloud.ReadAloudSessionStatus
 import io.legado.app.domain.model.selectPlaybackCapsule
 import io.legado.app.model.AudioPlay
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudResumePolicy
 import io.legado.app.model.ReadAloudSessionStore
 import io.legado.app.model.ReadBook
 import io.legado.app.service.AudioPlayService
@@ -131,9 +132,7 @@ class PlaybackCapsuleGatewayAdapter(
     override fun togglePause(source: PlaybackCapsuleSource) {
         if (!ownsSelectedSession(source)) return
         when (source) {
-            PlaybackCapsuleSource.ReadAloud -> if (BaseReadAloudService.pause) ReadAloud.resume(
-                application
-            ) else ReadAloud.pause(application)
+            PlaybackCapsuleSource.ReadAloud -> ReadAloudResumePolicy.toggle(application)
 
             PlaybackCapsuleSource.AudioBook -> when (if (AudioPlayService.isRun) AudioPlay.status else Status.STOP) {
                 Status.PLAY -> AudioPlay.pause(application)

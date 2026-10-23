@@ -33,9 +33,14 @@ class LocalTtsGateway(port: Int, private val client: TtsClient) : NanoHTTPD("127
     private fun handleTts(session: IHTTPSession): Response {
         val params = GatewayParams.parse(session.parameters)
             .getOrElse { return badRequest(it.message ?: "参数非法") }
+        // 调用方给了请求级超时（混合朗读）时，网关必须提前返回：
+        // 否则 App 的 HTTP 超时先到，真实错误（远端超时/节点不可达）永远看不到。
+        val remoteTimeoutMs = params.timeoutMs
+            ?.let { if (it > 3_000) it - 2_000 else it }
+            ?: TtsClient.DEFAULT_API_TIMEOUT_MS
         val (status, mime, body) = client.request(
             "POST", "/api/tts", GatewayParams.toMap(params),
-            timeoutMs = params.timeoutMs ?: TtsClient.DEFAULT_API_TIMEOUT_MS)
+            timeoutMs = remoteTimeoutMs)
         if (status != 200) return newFixedLengthResponse(
             Response.Status.lookup(status) ?: Response.Status.INTERNAL_ERROR,
             "text/plain", "remote tts failed: $status ${String(body as? ByteArray ?: ByteArray(0))}")
@@ -153,8 +158,19 @@ class ConfigStore(context: Context) {
 object RemoteLinkManager {
     @Volatile private var gateway: LocalTtsGateway? = null
     @Volatile private var clientRef: P2pClient? = null
+    @Volatile private var keepAliveThread: Thread? = null
+    @Volatile private var lastKeepAliveOk: Boolean? = null
     @Volatile var currentPort: Int = 0
         private set
+
+    /** 建链诊断日志出口（App 启动时接到落盘 AppLog）。 */
+    @Volatile
+    var logSink: ((String) -> Unit)? = null
+        private set
+
+    fun setLogSink(block: ((String) -> Unit)?) {
+        logSink = block
+    }
 
     /** 最近一次启动失败原因（null=无错误）——配置页展示用。 */
     @Volatile var lastError: String? = null
@@ -173,13 +189,17 @@ object RemoteLinkManager {
         // App 启动路径（App.onCreate）不得崩溃：启动失败保持停止态并记录原因
         try {
             val psk = android.util.Base64.decode(store.pskBase64, android.util.Base64.DEFAULT)
-            val client = P2pClient(store.relayHost, store.relayPort, psk, store.nodeId)
+            val client = P2pClient(
+                store.relayHost, store.relayPort, psk, store.nodeId,
+                log = { message -> logSink?.invoke(message) },
+            )
             val gw = LocalTtsGateway(store.localPort, client)
             gw.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
             gateway = gw
             clientRef = client
             currentPort = store.localPort
             lastError = null
+            startWarmup(client)
         } catch (e: Exception) {
             lastError = e.message ?: e.javaClass.simpleName
         }
@@ -192,8 +212,40 @@ object RemoteLinkManager {
         init(context)
     }
 
+    /**
+     * 预建链 + 保活。
+     *
+     * 中继 RTT 较高时（实测 1.3s），一次打洞+中继建链要多次往返，可能超过
+     * 朗读请求的 10s 超时。若等首个 TTS 请求再建链，会永远超时、永远走兜底。
+     * 这里在网关启动后主动建链，并在断链后按 15s 重试，让 TTS 请求复用已有会话。
+     */
+    private fun startWarmup(client: P2pClient) {
+        keepAliveThread?.interrupt()
+        lastKeepAliveOk = null
+        keepAliveThread = Thread({
+            while (!Thread.currentThread().isInterrupted) {
+                val ok = runCatching { client.ping() }.getOrElse { false }
+                if (lastKeepAliveOk != ok) {
+                    lastKeepAliveOk = ok
+                    logSink?.invoke(if (ok) "P2P 会话就绪（预建链/保活）" else "P2P 会话不可用，稍后重试")
+                }
+                try {
+                    Thread.sleep(if (ok) 45_000 else 15_000)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }, "RemoteLinkKeepAlive").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
     @Synchronized
     fun stop() {
+        keepAliveThread?.interrupt()
+        keepAliveThread = null
+        lastKeepAliveOk = null
         gateway?.stop(); gateway = null
         clientRef?.close(); clientRef = null
         currentPort = 0

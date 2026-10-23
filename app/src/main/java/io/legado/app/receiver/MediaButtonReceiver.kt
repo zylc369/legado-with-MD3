@@ -11,6 +11,7 @@ import io.legado.app.domain.gateway.ReadAloudSettingsGateway
 import io.legado.app.help.LifecycleHelp
 import io.legado.app.model.AudioPlay
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudResumePolicy
 import io.legado.app.model.ReadBook
 import io.legado.app.service.AudioPlayService
 import io.legado.app.service.BaseReadAloudService
@@ -76,11 +77,13 @@ class MediaButtonReceiver : BroadcastReceiver() {
         fun readAloud(context: Context, isMediaKey: Boolean = true) {
             when {
                 BaseReadAloudService.isRun -> {
-                    if (BaseReadAloudService.isPlay()) {
-                        ReadAloud.pause(context)
+                    // toggle 只发服务意图，companion 状态要到服务端 onStartCommand 才翻转；
+                    // 必须先取旧状态，才能把“与朗读相同的动作”同步作用于听书。
+                    val wasPlaying = BaseReadAloudService.isPlay()
+                    ReadAloudResumePolicy.toggle(context)
+                    if (wasPlaying) {
                         AudioPlay.pause(context)
                     } else {
-                        ReadAloud.resume(context)
                         AudioPlay.resume(context)
                     }
                 }

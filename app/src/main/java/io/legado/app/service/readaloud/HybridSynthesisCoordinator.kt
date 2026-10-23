@@ -32,6 +32,11 @@ class HybridSynthesisCoordinator(
     private val remoteSynth: suspend (String, CustomTtsVoiceParams) -> File?,
     private val fallbackSynth: suspend (String, Float) -> File?,
     private val fallbackTimeoutMs: Long = 15_000,
+    /** 远端连续失败多少次后进入冷却（期间不再发起远端请求，兜底继续）。 */
+    private val remoteFailureThreshold: Int = 2,
+    /** 冷却时长；到期后下一段自动重试远端。 */
+    private val remoteCooldownMs: Long = 30_000,
+    private val nowMs: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** 系统兜底改由 TTS 直接 speak 时关闭文件兜底，避免无意义的落盘合成。 */
     private val fallbackEnabled: Boolean = true,
@@ -42,6 +47,11 @@ class HybridSynthesisCoordinator(
     private var texts: List<String> = emptyList()
     private val remoteJobs = HashMap<Int, Deferred<File?>>()
     private val fallbackJobs = HashMap<Int, Deferred<File?>>()
+
+    /** 远端健康状态（跨段共享；网络故障不是段级的，逐段重试只会堆叠超时）。 */
+    private val remoteHealthLock = Any()
+    private var consecutiveRemoteFailures = 0
+    private var remoteCooldownUntilMs = 0L
 
     fun start(textList: List<String>) {
         stop()
@@ -93,10 +103,51 @@ class HybridSynthesisCoordinator(
         policy.reset()
     }
 
+    private fun remoteCooldownActive(): Boolean {
+        val until = synchronized(remoteHealthLock) { remoteCooldownUntilMs }
+        if (until == 0L) return false
+        if (nowMs() < until) return true
+        synchronized(remoteHealthLock) {
+            if (remoteCooldownUntilMs != 0L && nowMs() >= remoteCooldownUntilMs) {
+                remoteCooldownUntilMs = 0L
+                consecutiveRemoteFailures = 0
+                log("混合TTS: 远端冷却结束，恢复远端请求")
+            }
+        }
+        return false
+    }
+
+    private fun onRemoteSuccess() {
+        synchronized(remoteHealthLock) {
+            consecutiveRemoteFailures = 0
+            remoteCooldownUntilMs = 0L
+        }
+    }
+
+    private fun onRemoteFailure() {
+        val enteredCooldown: Boolean
+        val failures: Int
+        synchronized(remoteHealthLock) {
+            if (remoteCooldownUntilMs != 0L) return
+            consecutiveRemoteFailures++
+            failures = consecutiveRemoteFailures
+            enteredCooldown = failures >= remoteFailureThreshold
+            if (enteredCooldown) {
+                remoteCooldownUntilMs = nowMs() + remoteCooldownMs
+            }
+        }
+        if (enteredCooldown) {
+            log(
+                "混合TTS: 远端连续失败 ${failures} 次，暂停远端请求 ${remoteCooldownMs}ms" +
+                    "（继续使用兜底）"
+            )
+        }
+    }
+
     private fun schedule(index: Int) {
         if (index !in texts.indices) return
         val segment = texts[index]
-        if (index !in remoteJobs) {
+        if (index !in remoteJobs && !remoteCooldownActive()) {
             log(
                 "混合TTS: 预取段 $index remote（voice=${remoteParams.voiceId.ifEmpty { "<默认>" }}" +
                     ", timeout=${remoteTimeoutMs}ms, textLen=${segment.length}）"
@@ -120,8 +171,10 @@ class HybridSynthesisCoordinator(
                 }
                 val elapsed = System.currentTimeMillis() - startedAt
                 if (result != null) {
+                    onRemoteSuccess()
                     log("混合TTS: 段 $index 远程就绪（${elapsed}ms）${result.name} (${result.length()}B)")
                 } else {
+                    onRemoteFailure()
                     log("混合TTS: 段 $index 远程无结果（${elapsed}ms）")
                 }
                 result
