@@ -9,6 +9,7 @@ import com.opensecurity.customtts.model.HybridTtsConfig
 import com.opensecurity.customtts.segmenter.SegmentMath
 import com.opensecurity.remotelink.gateway.ConfigStore
 import com.opensecurity.remotelink.gateway.RemoteLinkManager
+import io.legado.app.domain.model.readaloud.ReadAloudVoice
 import io.legado.app.domain.gateway.CloudTtsEngineGateway
 import io.legado.app.domain.gateway.CustomTtsCatalogGateway
 import io.legado.app.domain.gateway.CustomTtsSettingsGateway
@@ -17,6 +18,9 @@ import io.legado.app.domain.gateway.ReadAloudVoiceGateway
 import io.legado.app.domain.model.settings.CustomTtsSettings
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.readaloud.playback.CustomTtsUrlBuilder
+import io.legado.app.help.readaloud.playback.ReadAloudEngineCatalog
+import io.legado.app.help.readaloud.playback.ReadAloudSpeed
+import io.legado.app.help.readaloud.playback.ReadAloudVoiceCatalog
 import io.legado.app.help.readaloud.playback.SystemTtsVoiceCatalog
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -96,8 +100,8 @@ class CustomTtsViewModel(
                 loadFallbackVoices(intent.engineType, intent.engineId)
             }
             is CustomTtsIntent.SetFallbackVoice -> update { copy(fallbackSpeakerId = intent.speakerId) }
-            is CustomTtsIntent.SetFallbackSpeed -> update { copy(fallbackSpeed = intent.value) }
-            is CustomTtsIntent.SetCustomSpeed -> update { copy(customSpeed = intent.value) }
+            is CustomTtsIntent.SetFallbackSpeed -> update { copy(fallbackSpeed = ReadAloudSpeed.quantize(intent.value)) }
+            is CustomTtsIntent.SetCustomSpeed -> update { copy(customSpeed = ReadAloudSpeed.quantize(intent.value)) }
             is CustomTtsIntent.SetRemoteTimeout -> update { copy(remoteTimeoutMs = intent.value) }
             is CustomTtsIntent.SetSegmentStairs -> update { copy(segmentStairsText = intent.value) }
             is CustomTtsIntent.SetSegmentTarget -> update { copy(segmentTarget = intent.value) }
@@ -109,42 +113,18 @@ class CustomTtsViewModel(
     /** 兜底引擎选项：系统 + HTTP + 云（排除定制引擎）。 */
     private fun loadFallbackEngines() {
         viewModelScope.launch {
-            val options = ArrayList<CustomTtsEngineOptionUi>()
-            runCatching { SystemTtsVoiceCatalog(appCtx).getEngines() }
+            val system = runCatching { SystemTtsVoiceCatalog(appCtx).getEngines() }
                 .getOrDefault(emptyList())
-                .forEach { engine ->
-                    options.add(
-                        CustomTtsEngineOptionUi(
-                            label = "系统: ${engine.displayName}",
-                            engineType = "system",
-                            engineId = engine.sourceId,
-                        )
-                    )
-                }
-            runCatching { httpTtsGateway.observeAll().first() }
+            val http = runCatching { httpTtsGateway.observeAll().first() }
                 .getOrDefault(emptyList())
-                .filter { it.sourceId != CustomTtsCatalog.ENGINE_ID.toString() }
-                .forEach { engine ->
-                    options.add(
-                        CustomTtsEngineOptionUi(
-                            label = "HTTP: ${engine.displayName}",
-                            engineType = "http",
-                            engineId = engine.sourceId,
-                        )
-                    )
-                }
-            runCatching { cloudTtsGateway.getAll() }
+            val cloud = runCatching { cloudTtsGateway.getAll() }
                 .getOrDefault(emptyList())
-                .filter { it.enabled }
-                .forEach { engine ->
-                    options.add(
-                        CustomTtsEngineOptionUi(
-                            label = "云: ${engine.name}",
-                            engineType = "cloud_tts",
-                            engineId = engine.id,
-                        )
-                    )
-                }
+            val options = ReadAloudEngineCatalog.merge(
+                system = system,
+                http = http,
+                cloud = cloud,
+                excludeHttpId = CustomTtsCatalog.ENGINE_ID.toString(),
+            ).map { CustomTtsEngineOptionUi(it.label, it.engineType, it.engineId) }
             update { copy(fallbackEngines = options.toImmutableList()) }
         }
     }
@@ -153,15 +133,16 @@ class CustomTtsViewModel(
     private fun loadFallbackVoices(engineType: String, engineId: String) {
         if (engineId.isEmpty()) return
         viewModelScope.launch {
-            val options = when (engineType) {
-                "system" -> runCatching { SystemTtsVoiceCatalog(appCtx).getVoices(engineId) }
+            val native = if (engineType == ReadAloudVoice.ENGINE_SYSTEM) {
+                runCatching { SystemTtsVoiceCatalog(appCtx).getVoices(engineId) }
                     .getOrDefault(emptyList())
-                    .map { CustomTtsVoiceOptionUi(it.displayName, it.id) }
-                else -> runCatching { voiceGateway.getEnabledVoices() }
-                    .getOrDefault(emptyList())
-                    .filter { it.engineType == engineType && it.engineId == engineId }
-                    .map { CustomTtsVoiceOptionUi(it.displayName, it.speakerId) }
+            } else {
+                emptyList()
             }
+            val presets = runCatching { voiceGateway.getEnabledVoices() }
+                .getOrDefault(emptyList())
+            val options = ReadAloudVoiceCatalog.merge(engineType, engineId, native, presets)
+                .map { CustomTtsVoiceOptionUi(it.label, it.speakerId) }
             update { copy(fallbackVoices = options.toImmutableList()) }
         }
     }
@@ -246,8 +227,8 @@ class CustomTtsViewModel(
                     fallbackEngineType = settings.hybrid.fallbackEngineType,
                     fallbackEngineId = settings.hybrid.fallbackEngineId,
                     fallbackSpeakerId = settings.hybrid.fallbackSpeakerId,
-                    fallbackSpeed = settings.hybrid.fallbackSpeed,
-                    customSpeed = settings.hybrid.customSpeed,
+                    fallbackSpeed = ReadAloudSpeed.quantize(settings.hybrid.fallbackSpeed),
+                    customSpeed = ReadAloudSpeed.quantize(settings.hybrid.customSpeed),
                     remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toString(),
                     segmentStairsText = settings.segmentStairs.joinToString(","),
                     segmentTarget = settings.segmentTarget.toString(),
@@ -382,8 +363,8 @@ class CustomTtsViewModel(
                 fallbackEngineType = s.fallbackEngineType,
                 fallbackEngineId = s.fallbackEngineId,
                 fallbackSpeakerId = s.fallbackSpeakerId,
-                fallbackSpeed = s.fallbackSpeed,
-                customSpeed = s.customSpeed,
+                fallbackSpeed = ReadAloudSpeed.quantize(s.fallbackSpeed),
+                customSpeed = ReadAloudSpeed.quantize(s.customSpeed),
             ),
             segmentTarget = target,
             segmentStairs = stairs,

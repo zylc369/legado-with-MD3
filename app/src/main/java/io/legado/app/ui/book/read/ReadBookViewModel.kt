@@ -61,6 +61,7 @@ import io.legado.app.help.book.isLocalTxt
 import io.legado.app.help.book.isMobi
 import io.legado.app.help.book.removeType
 import io.legado.app.help.config.ReadBookConfig
+import io.legado.app.help.readaloud.playback.SystemTtsEngineFactory
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.source.getSourceType
 import io.legado.app.model.ImageProvider
@@ -575,7 +576,7 @@ class ReadBookViewModel(
     )
 
     private val sysEngines: List<TextToSpeech.EngineInfo> by lazy {
-        val tts = TextToSpeech(context, null)
+        val tts = SystemTtsEngineFactory.create(context, "") { }
         val engines = tts.engines
         tts.shutdown()
         engines

@@ -74,6 +74,7 @@ import io.legado.app.model.reader.ReaderChapterInput
 import io.legado.app.receiver.NetworkChangedListener
 import io.legado.app.receiver.TimeBatteryReceiver
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.service.ReadAloudUnitHighlightRange
 import io.legado.app.ui.association.OpenUrlConfirmActivity
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.login.SourceLoginJsExtensions
@@ -781,11 +782,9 @@ class ReadBookController(
      * 就是服务正在朗读的位置；服务停止后 [BaseReadAloudService.isRun] 为 false，高亮自然消失。
      * 暂停时仍保留高亮（isRun 仍为 true），与"暂停不改高亮、停止才清"的既有语义一致。
      */
-    private fun readAloudHighlightPosition(): Pair<Int, Int>? {
+    private fun readAloudHighlightPosition(): ReadAloudUnitHighlightRange? {
         if (!BaseReadAloudService.isRun) return null
-        val chapterIndex = BaseReadAloudService.currentChapterIndex
-        if (chapterIndex < 0) return null
-        return chapterIndex to BaseReadAloudService.currentProgress.coerceAtLeast(0)
+        return BaseReadAloudService.currentUnitRange
     }
 
     private fun directReaderWindow(index: Int): ReaderPageWindow {
@@ -810,9 +809,6 @@ class ReadBookController(
             ?.takeIf { it in directReaderStreamingChapters }
         val selection = searchSelection
         val aloudPosition = readAloudHighlightPosition()
-        val aloudParagraphIndex = aloudPosition?.let { (chapterIndex, chapterPosition) ->
-            ReaderPageNavigator.bodyParagraphAt(directReaderPages, chapterIndex, chapterPosition)
-        }
         fun highlight(page: io.legado.app.feature.reader.core.model.ReaderPage?, pageIndex: Int) = page?.let { source ->
             val chapterPageCount = directReaderChapterPageCounts[source.id.chapterIndex] ?: 0
             val dynamicState = viewModel.uiState.value
@@ -832,8 +828,7 @@ class ReadBookController(
                 revision = source.revision xor dynamicState.time.hashCode().toLong() xor dynamicState.battery.toLong(),
             )
             val pageHasSearchSelection = selection?.chapterIndex == source.id.chapterIndex
-            val pageHasAloudParagraph = aloudPosition?.first == source.id.chapterIndex &&
-                aloudParagraphIndex != null
+            val pageHasAloudRange = aloudPosition?.chapterIndex == source.id.chapterIndex
             decorated.copy(
                 // Search/read-aloud state must not clone every glyph in the visible window:
                 // scroll draw data is keyed by the immutable layout element list.  The Canvas
@@ -841,7 +836,9 @@ class ReadBookController(
                 searchStart = selection?.anchor?.takeIf { pageHasSearchSelection },
                 searchEndInclusive = selection?.focus?.takeIf { pageHasSearchSelection },
                 searchIsTitle = selection?.anchorIsTitle == true,
-                readAloudParagraphIndex = aloudParagraphIndex.takeIf { pageHasAloudParagraph },
+                readAloudStart = aloudPosition?.start.takeIf { pageHasAloudRange },
+                readAloudEndInclusive = aloudPosition?.endInclusive.takeIf { pageHasAloudRange },
+                readAloudIsTitle = aloudPosition?.isTitle == true,
                 revision = decorated.revision xor (selection?.hashCode()?.toLong() ?: 0L) xor
                         (aloudPosition?.hashCode()?.toLong() ?: 0L),
             )
@@ -2484,6 +2481,23 @@ class ReadBookController(
         return true
     }
 
+    /**
+     * 唯一的“可见页起点”来源：provider 不可用时，用控制器当前页的分页页首，
+     * 而不是被朗读推进过的 ReadBook.durPageIndex。
+     */
+    private fun readAloudFromVisiblePage(): Boolean {
+        val pageIndex = directReaderPageIndex ?: return false
+        val pageStart = ReadAloudVisiblePage.pageStart(
+            pages = directReaderPages,
+            pageIndex = pageIndex,
+            currentChapterIndex = ReadBook.durChapterIndex,
+            pagination = ReadBook::readerPagination,
+        ) ?: return false
+        ReadBook.updateReadingPosition(pageStart)
+        ReadBook.readAloud(chapterPosition = pageStart)
+        return true
+    }
+
     // ── Key handling ──
 
     private fun toggleReadAloud() {
@@ -2491,11 +2505,14 @@ class ReadBookController(
         when {
             !BaseReadAloudService.isRun -> {
                 ReadAloud.upReadAloudClass()
-                if (!readAloudFromComposeVisibleStart()) ReadBook.readAloud()
+                if (!readAloudFromComposeVisibleStart() && !readAloudFromVisiblePage()) {
+                    ReadBook.readAloud()
+                }
             }
 
             BaseReadAloudService.pause -> {
-                val restartFromVisibleStart = pageChanged && readAloudFromComposeVisibleStart()
+                val restartFromVisibleStart = pageChanged &&
+                    (readAloudFromComposeVisibleStart() || readAloudFromVisiblePage())
                 pageChanged = false
                 if (!restartFromVisibleStart) ReadAloud.resume(activity)
             }

@@ -1,13 +1,18 @@
 package io.legado.app.service
 
+import io.legado.app.domain.model.readaloud.PlaybackPositionMap
+import io.legado.app.domain.model.readaloud.PlaybackUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReadAloudMediaSeekTest {
 
-    private val content = listOf("章节标题", "abcdef", "ghij")
-    private val chapterPositions = listOf(null, 0, 7)
+    private val units = listOf(
+        PlaybackUnit.chapterTitle("章节标题"),
+        PlaybackUnit("abcdef", PlaybackPositionMap.identity(0)),
+        PlaybackUnit("ghij", PlaybackPositionMap.identity(7)),
+    )
 
     @Test
     fun seekUsesTheSameSpeechRateAsTheEstimatedTimeline() {
@@ -37,7 +42,13 @@ class ReadAloudMediaSeekTest {
     fun adjacentPageOrVoiceCuesDoNotInventANewlineOffset() {
         assertEquals(
             ReadAloudMediaSeekPosition(1, 0, 4),
-            resolveReadAloudMediaSeek(1_000, 4f, 8, listOf("abcd", "efgh"), listOf(0, 4)),
+            resolveReadAloudMediaSeek(
+                1_000, 4f, 8,
+                listOf(
+                    PlaybackUnit("abcd", PlaybackPositionMap.identity(0)),
+                    PlaybackUnit("efgh", PlaybackPositionMap.identity(4)),
+                ),
+            ),
         )
     }
 
@@ -45,14 +56,21 @@ class ReadAloudMediaSeekTest {
     fun seekPreservesSurrogatePairs() {
         assertEquals(
             ReadAloudMediaSeekPosition(0, 0, 0),
-            resolveReadAloudMediaSeek(250, 4f, 3, listOf("\uD83D\uDE00a"), listOf(0)),
+            resolveReadAloudMediaSeek(
+                250, 4f, 3,
+                listOf(PlaybackUnit("\uD83D\uDE00a", PlaybackPositionMap.identity(0))),
+            ),
         )
     }
 
     @Test
     fun unavailableContentOrTimelineDoesNotProduceASeek() {
-        assertNull(resolveReadAloudMediaSeek(0, 4f, 0, emptyList(), emptyList()))
-        assertNull(resolveReadAloudMediaSeek(0, 4f, 4, listOf("标题"), listOf(null)))
+        assertNull(resolveReadAloudMediaSeek(0, 4f, 0, emptyList()))
+        assertNull(
+            resolveReadAloudMediaSeek(
+                0, 4f, 4, listOf(PlaybackUnit.chapterTitle("标题"))
+            )
+        )
         assertNull(seek(1_000, 0f))
         assertNull(seek(1_000, Float.NaN))
     }
@@ -67,8 +85,9 @@ class ReadAloudMediaSeekTest {
 
     @Test
     fun ttsRangeStartsAtTheSeekOffsetWithinTheParagraph() {
-        assertEquals(240, currentRangePosition(200, 0, 40))
-        assertEquals(245, currentRangePosition(200, 5, 40))
+        val map = PlaybackPositionMap.identity(200).advancedBy(40)
+        assertEquals(240, map.positionAt(0))
+        assertEquals(245, map.positionAt(5))
     }
 
     @Test
@@ -79,7 +98,6 @@ class ReadAloudMediaSeekTest {
         assertEquals(40, httpReadAloudParagraphOffset(100, 40, 2_000, 0))
     }
 
-    private fun seek(positionMs: Long, charsPerSecond: Float = 4f) = resolveReadAloudMediaSeek(
-        positionMs, charsPerSecond, 11, content, chapterPositions,
-    )
+    private fun seek(positionMs: Long, charsPerSecond: Float = 4f) =
+        resolveReadAloudMediaSeek(positionMs, charsPerSecond, 11, units)
 }

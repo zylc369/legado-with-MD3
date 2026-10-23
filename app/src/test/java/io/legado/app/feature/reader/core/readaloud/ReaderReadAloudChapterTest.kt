@@ -30,7 +30,6 @@ class ReaderReadAloudChapterTest {
             chapter.paragraphs(splitByPage = true).map { it.chapterPosition })
         assertEquals(7, chapter.chapterLength)
         assertEquals(1, chapter.pageIndexAt(4))
-        assertEquals(0, chapter.paragraphIndexAtOrAfter(4, splitByPage = false))
         assertEquals(ReadAloudContentSplitMode.Paragraph, chapter.contentSplitMode)
     }
 
@@ -62,8 +61,6 @@ class ReaderReadAloudChapterTest {
             chapter.paragraphs(splitByPage = false).map { it.chapterPosition },
         )
         assertEquals(13, chapter.chapterLength)
-        assertEquals(0, chapter.paragraphIndexAtOrAfter(1, splitByPage = false))
-        assertEquals(1, chapter.paragraphIndexAtOrAfter(5, splitByPage = false))
     }
 
     @Test

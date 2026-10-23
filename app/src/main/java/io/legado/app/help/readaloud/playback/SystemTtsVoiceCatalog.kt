@@ -6,9 +6,7 @@ import io.legado.app.domain.model.readaloud.TtsEngineDescriptor
 import io.legado.app.domain.model.readaloud.TtsEngineKind
 import io.legado.app.domain.model.readaloud.TtsNativeVoice
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 
 class SystemTtsVoiceCatalog(context: Context) {
 
@@ -44,6 +42,8 @@ class SystemTtsVoiceCatalog(context: Context) {
                         requiresNetwork = voice.isNetworkConnectionRequired,
                     )
                 }
+                // 部分系统引擎会返回同名音色（如 en/en、zh/zh/zh）；作为列表 key 会重复。
+                .distinctBy { it.id }
                 .sortedWith(compareBy<TtsNativeVoice> { it.locale }.thenBy { it.displayName })
         } ?: emptyList()
 
@@ -61,26 +61,7 @@ class SystemTtsVoiceCatalog(context: Context) {
     }
 
     private suspend fun createTts(enginePackage: String): TextToSpeech? =
-        suspendCancellableCoroutine { continuation ->
-            var instance: TextToSpeech? = null
-            val listener = TextToSpeech.OnInitListener { status ->
-                val initialized = instance
-                if (!continuation.isActive) {
-                    initialized?.shutdown()
-                } else if (status == TextToSpeech.SUCCESS) {
-                    continuation.resume(initialized)
-                } else {
-                    initialized?.shutdown()
-                    continuation.resume(null)
-                }
-            }
-            instance = if (enginePackage.isBlank()) {
-                TextToSpeech(appContext, listener)
-            } else {
-                TextToSpeech(appContext, listener, enginePackage)
-            }
-            continuation.invokeOnCancellation { instance.shutdown() }
-        }
+        SystemTtsEngineFactory.create(appContext, enginePackage)
 
     companion object {
         fun engineId(sourceId: String): String = "system:$sourceId"

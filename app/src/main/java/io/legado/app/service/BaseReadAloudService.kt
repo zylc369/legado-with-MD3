@@ -42,6 +42,7 @@ import io.legado.app.domain.model.PlaybackTimer
 import io.legado.app.domain.model.readaloud.CanonicalSpeechParagraph
 import io.legado.app.domain.model.readaloud.ContentSplitPolicies
 import io.legado.app.domain.model.readaloud.ContentSplitPolicy
+import io.legado.app.domain.model.readaloud.PlaybackUnit
 import io.legado.app.domain.model.readaloud.ReadAloudPlaybackCursor
 import io.legado.app.domain.model.readaloud.ReadAloudPlaybackInfo
 import io.legado.app.domain.model.readaloud.ReadAloudPlaybackQueue
@@ -56,6 +57,7 @@ import io.legado.app.feature.reader.core.readaloud.ReaderReadAloudChapter
 import io.legado.app.help.MediaHelp
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.coroutine.Coroutine
+import io.legado.app.help.readaloud.playback.ReadAloudUnitSource
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.lib.permission.Permissions
 import io.legado.app.lib.permission.PermissionsCompat
@@ -141,6 +143,15 @@ abstract class BaseReadAloudService : BaseService(),
             private set
 
         /**
+         * 当前朗读单元的精确高亮区间（读什么高亮什么）。
+         * 正文单元使用章节坐标；标题单元使用标题坐标系。
+         */
+        @JvmStatic
+        @Volatile
+        var currentUnitRange: ReadAloudUnitHighlightRange? = null
+            private set
+
+        /**
          * 朗读服务自身驱动页面移动（按页朗读、进度翻页、换章）时为 true；
          * 供 [io.legado.app.model.ReadBook] 区分「朗读驱动翻页」与「用户手动导航」，
          * 避免朗读推进被误判为手动脱离。
@@ -217,7 +228,9 @@ abstract class BaseReadAloudService : BaseService(),
     private val phoneStateListener by lazy {
         ReadAloudPhoneStateListener()
     }
+    internal var playbackUnits = emptyList<PlaybackUnit>()
     internal var contentList = emptyList<String>()
+        private set
     private var contentChapterPositions = emptyList<Int?>()
     /** Canonical, character-aware plan for the current chapter. Playback adoption is incremental. */
     internal var speechPlan = emptyList<SpeechPlanItem>()
@@ -260,22 +273,74 @@ abstract class BaseReadAloudService : BaseService(),
     private var toLast = false
     var paragraphStartPos = 0
 
-    /** 当前朗读段在章节语义文本中的绝对起始位置；页内切段不引入换行符，进度必须以它为准 */
-    protected fun paragraphChapterPositionAt(index: Int): Int? =
+    /** 当前朗读单元的章节起点（正文单元；标题单元为标题坐标系 0）。 */
+    protected fun unitStartPositionAt(index: Int): Int? =
         contentChapterPositions.getOrNull(index)
 
     /**
-     * 语法层（混合朗读）替换播放单元表：文本 + 章节位置（null=标题）。
-     * 与 [contentList] 同步替换，保证 nextP/prevP/seek 的位置映射不错位。
+     * 播放单元表的**唯一写入点**：newReadAloud 准备与引擎级重建都经这里提交，
+     * 文本表/位置表是单元表的投影，任何路径不得单独改写、更不得自行做位置算术。
      */
-    protected fun replacePlaybackUnits(texts: List<String>, chapterPositions: List<Int?>) {
-        contentList = texts
-        contentChapterPositions = chapterPositions
+    protected fun replacePlaybackUnits(units: List<PlaybackUnit>) {
+        playbackUnits = units
+        contentList = units.map { it.text }
+        contentChapterPositions = units.map { it.map?.startPosition }
+    }
+
+    /** 当前播放单元（下标越界返回 null）。 */
+    protected fun currentPlaybackUnit(): PlaybackUnit? =
+        playbackUnits.getOrNull(nowSpeak)
+
+    /**
+     * 把游标整体切到 [index] 单元：readAloudNumber/高亮区间一并同步。
+     * 推进、上一段/下一段、seek、混合驱动全部走这里，禁止散落赋值。
+     */
+    protected fun moveToUnit(index: Int, offset: Int = 0) {
+        nowSpeak = index
+        paragraphStartPos = offset
+        readAloudNumber = playbackUnits.getOrNull(index)?.startPosition ?: 0
+        syncCurrentUnitRange()
+    }
+
+    /**
+     * 唯一起点裁剪：把 [index] 单元的文本与锚点整体前移 [offset] 个字符。
+     * newReadAloud 的起点定位与混合模式暂停恢复（按当前词重建）共用。
+     */
+    protected fun cropPlaybackUnitAt(index: Int, offset: Int) {
+        if (offset <= 0) return
+        val unit = playbackUnits.getOrNull(index) ?: return
+        if (unit.isChapterTitle || unit.map == null || offset >= unit.text.length) return
+        replacePlaybackUnits(
+            playbackUnits.toMutableList().also { list ->
+                list[index] = unit.copy(
+                    text = unit.text.substring(offset),
+                    map = unit.map!!.advancedBy(offset),
+                )
+            }
+        )
+        if (nowSpeak == index) {
+            paragraphStartPos = 0
+            readAloudNumber = unitStartPositionAt(index) ?: readAloudNumber
+            syncCurrentUnitRange()
+        }
     }
 
     protected fun isChapterTitleAt(index: Int): Boolean =
-        index in contentChapterPositions.indices && contentChapterPositions[index] == null
+        playbackUnits.getOrNull(index)?.isChapterTitle == true
     protected open val useSpeechPlaybackQueue: Boolean = false
+
+    /**
+     * 引擎是否朗读章节标题（队列与非队列路径一致）。
+     * 混合引擎不读标题：清洗分段只覆盖正文，标题不应消耗首段兜底策略/远端请求。
+     */
+    protected open val speakChapterTitle: Boolean = true
+
+    /**
+     * 本次会话是否采用多角色 cue 队列。
+     * 混合引擎始终走自身清洗分段单元（锚点表），不采用 cue 队列——
+     * 与旧实现“playCustomHybrid 无视队列重建分段”的语义一致。
+     */
+    protected open fun adoptsSpeechPlaybackQueue(): Boolean = true
 
     /**
      * newReadAloud 整体替换本章播放状态(队列/游标/段落)后回调,
@@ -313,19 +378,12 @@ abstract class BaseReadAloudService : BaseService(),
             return false
         }
         do {
-            readAloudNumber = nextParagraphPosition(
-                currentPosition = readAloudNumber,
-                paragraphLength = contentList[nowSpeak].length,
-                paragraphStartPosition = paragraphStartPos,
-            )
-            paragraphStartPos = 0
-            if (nowSpeak >= contentList.lastIndex) {
+            if (nowSpeak >= playbackUnits.lastIndex) {
                 if (naturalCompletion) completeCurrentChapter() else nextChapter()
                 return false
             }
-            nowSpeak++
+            moveToUnit(nowSpeak + 1)
         } while (skipUnreadable && contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
-        readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
         return true
     }
 
@@ -418,6 +476,7 @@ abstract class BaseReadAloudService : BaseService(),
         sessionStore.stop()
         currentChapterIndex = -1
         currentProgress = 0
+        currentUnitRange = null
         abandonFocus()
         unregisterReceiver(broadcastReceiver)
         postEvent(EventBus.ALOUD_STATE, Status.STOP)
@@ -523,14 +582,16 @@ abstract class BaseReadAloudService : BaseService(),
                 contentSplitMode == ReadAloudContentSplitMode.Page
             var preparedReadAloudNumber = preparedChapter.pageStart(pageIndex) + startPos
             val startsAtChapterBeginning = preparedReadAloudNumber == 0
-            val preparedParagraphs = preparedChapter.paragraphs(
+            // 播放单元由引擎声明：普通路径=段落恒等单元；混合引擎=清洗分段单元（带锚点）。
+            var preparedUnits = buildPlaybackUnits(
+                chapter = preparedChapter,
                 splitByPage = preparedReadAloudByPage,
                 policy = splitPolicy,
             )
-            var preparedContentList = preparedParagraphs
-                .map { it.text.replace(Regex("[袮祢꧁\uFFFC]"), " ") }
-            var preparedContentChapterPositions: List<Int?> =
-                preparedParagraphs.map { it.chapterPosition }
+            if (preparedUnits.isEmpty()) {
+                AppLog.put("启动朗读失败：章节无正文")
+                return@execute
+            }
             val preparedSpeechPlan = buildSpeechPlan(
                 bookUrl = ReadBook.book?.bookUrl.orEmpty(),
                 chapterIndex = ReadBook.durChapterIndex,
@@ -547,81 +608,76 @@ abstract class BaseReadAloudService : BaseService(),
                 AppLog.put("创建多角色播放队列失败，使用原朗读方式\n${it.localizedMessage}", it)
             }.getOrDefault(ReadAloudPlaybackQueue.Empty)
             var preparedPlaybackCursor = preparedPlaybackQueue.cursorAt(preparedReadAloudNumber)
-            var pos = startPos
-            val usePreparedPlaybackQueue = useSpeechPlaybackQueue && !preparedPlaybackQueue.isEmpty
-            var preparedNowSpeak = preparedChapter.paragraphIndexAtOrAfter(
-                preparedReadAloudNumber + 1,
-                splitByPage = preparedReadAloudByPage,
-                policy = splitPolicy,
-            )
-            if (!usePreparedPlaybackQueue && preparedNowSpeak !in preparedContentList.indices) {
-                AppLog.put(
-                    "启动朗读失败：无法定位朗读段落 position=$preparedReadAloudNumber " +
-                        "pageIndex=$pageIndex startPos=$startPos"
-                )
-                return@execute
-            }
+            val usePreparedPlaybackQueue = useSpeechPlaybackQueue &&
+                    !preparedPlaybackQueue.isEmpty && adoptsSpeechPlaybackQueue()
             val moveToLast = toLast
-            if (moveToLast) {
-                preparedReadAloudNumber = preparedParagraphs.last().chapterPosition
-                preparedNowSpeak = preparedContentList.lastIndex
-                pos = 0
-            }
-            // startPos 是页内偏移，需换算为目标朗读段内的偏移
-            if (!usePreparedPlaybackQueue && !moveToLast &&
-                preparedNowSpeak in preparedParagraphs.indices
-            ) {
-                val target = preparedParagraphs[preparedNowSpeak]
-                pos = (preparedReadAloudNumber - target.chapterPosition)
-                    .coerceIn(0, target.text.length)
-                preparedReadAloudNumber = target.chapterPosition
-            }
-            var preparedParagraphStartPos = pos
+            var preparedNowSpeak = 0
+            var preparedParagraphStartPos = 0
             if (usePreparedPlaybackQueue) {
-                preparedPlaybackQueue.cursorAt(preparedReadAloudNumber)?.let { cursor ->
-                    preparedPlaybackCursor = cursor
-                    preparedContentList = preparedPlaybackQueue.cues.map { it.text }
+                preparedUnits = ReadAloudUnitSource.fromCues(preparedPlaybackQueue.cues)
+                val cursor = preparedPlaybackQueue.cursorAt(preparedReadAloudNumber)
+                preparedPlaybackCursor = cursor
+                if (cursor != null) {
                     preparedNowSpeak = cursor.cueIndex
                     preparedParagraphStartPos = cursor.offset
-                    preparedReadAloudNumber = preparedPlaybackQueue.cues[cursor.cueIndex].chapterStart
                 }
+            } else if (moveToLast) {
+                preparedNowSpeak = preparedUnits.indexOfLast { !it.isChapterTitle }
+                    .coerceAtLeast(0)
+                preparedParagraphStartPos = 0
+            } else {
+                // 唯一起点定位：章节位置 → (单元, 单元内偏移)。清洗单元经锚点表精确对齐，
+                // 恒等单元数值上等于旧的“段落起点+页内偏移”。
+                val cursor = ReadAloudUnitSource.cursorAt(preparedUnits, preparedReadAloudNumber)
+                if (cursor == null) {
+                    AppLog.put(
+                        "启动朗读失败：无法定位朗读单元 position=$preparedReadAloudNumber " +
+                            "pageIndex=$pageIndex startPos=$startPos"
+                    )
+                    return@execute
+                }
+                preparedNowSpeak = cursor.first
+                preparedParagraphStartPos = cursor.second
             }
             val shouldReadChapterTitle = !moveToLast && startsAtChapterBeginning &&
-                    preparedChapter.title.isNotBlank()
+                    preparedChapter.title.isNotBlank() && speakChapterTitle
             if (shouldReadChapterTitle) {
                 if (usePreparedPlaybackQueue) {
                     preparedPlaybackQueue =
                         preparedPlaybackQueue.withChapterTitle(preparedChapter.title)
+                    preparedUnits = ReadAloudUnitSource.fromCues(preparedPlaybackQueue.cues)
                     preparedPlaybackCursor = ReadAloudPlaybackCursor(0, 0)
-                    preparedContentList = preparedPlaybackQueue.cues.map { it.text }
-                    preparedContentChapterPositions = preparedPlaybackQueue.cues.map { cue ->
-                        cue.chapterStart.takeUnless { cue.isChapterTitle }
-                    }
                 } else {
-                    preparedContentList = listOf(preparedChapter.title.trim()) + preparedContentList
-                    preparedContentChapterPositions = listOf(null) + preparedContentChapterPositions
+                    preparedUnits = listOf(PlaybackUnit.chapterTitle(preparedChapter.title.trim())) +
+                            preparedUnits
                 }
                 preparedNowSpeak = 0
                 preparedParagraphStartPos = 0
-                preparedReadAloudNumber = 0
-            } else if (usePreparedPlaybackQueue) {
-                preparedContentChapterPositions = preparedPlaybackQueue.cues.map { it.chapterStart }
             }
             if (generation != prepareReadAloudGeneration) return@execute
             this@BaseReadAloudService.pageIndex = pageIndex
             readerReadAloudChapter = preparedChapter
-            contentList = preparedContentList
-            contentChapterPositions = preparedContentChapterPositions
+            replacePlaybackUnits(preparedUnits)
             speechPlan = preparedSpeechPlan
-            playbackQueue = preparedPlaybackQueue
-            playbackCursor = preparedPlaybackCursor
-            nowSpeak = preparedNowSpeak
-            readAloudNumber = preparedReadAloudNumber
-            paragraphStartPos = preparedParagraphStartPos
-            updateReadAloudProgressSnapshot(preparedReadAloudNumber + preparedParagraphStartPos + 1)
+            if (usePreparedPlaybackQueue) {
+                playbackQueue = preparedPlaybackQueue
+                playbackCursor = preparedPlaybackCursor
+            } else {
+                // 未采用队列的引擎（混合）不得残留 cue 队列：updateNextPos/upTtsProgress
+                // 的队列分支会以 cue 坐标驱动单元表，两边坐标空间不一致。
+                playbackQueue = ReadAloudPlaybackQueue.Empty
+                playbackCursor = null
+            }
+            moveToUnit(preparedNowSpeak, preparedParagraphStartPos)
+            // 队列信息先于裁剪发布：cursor.offset 是裁剪前 cue 空间的偏移，
+            // 裁剪后的单元映射前移，混用会多报一个裁剪偏移。
+            preparedPlaybackCursor?.takeIf { hasSpeechPlaybackQueue }?.let(::publishPlaybackInfo)
+            // 唯一起点裁剪：命中单元的文本与锚点整体前移到请求位置；
+            // 此后 paragraphStartPos 恒为 0，所有引擎直接朗读单元原文。
+            cropPlaybackUnitAt(nowSpeak, paragraphStartPos)
+            updateReadAloudProgressSnapshot(readAloudNumber + paragraphStartPos + 1)
             onPlaybackStateReplaced()
             if (moveToLast) toLast = false
-            preparedPlaybackCursor?.takeIf { hasSpeechPlaybackQueue }?.let(::publishPlaybackInfo)
             launch(Main) {
                 if (generation != prepareReadAloudGeneration) return@launch
                 upMediaMetadata()
@@ -683,6 +739,18 @@ abstract class BaseReadAloudService : BaseService(),
             mode = resolveContentSplitMode(mode),
             storedSymbols = ReadConfig.contentSplitSymbols,
         )
+
+    /**
+     * 引擎声明的播放单元来源（唯一构建入口在 [ReadAloudUnitSource]）：
+     * 默认=段落恒等单元；混合引擎覆写为清洗分段单元（带锚点，跨段精确）。
+     */
+    protected open fun buildPlaybackUnits(
+        chapter: ReaderReadAloudChapter,
+        splitByPage: Boolean,
+        policy: ContentSplitPolicy?,
+    ): List<PlaybackUnit> = ReadAloudUnitSource.fromParagraphs(
+        chapter.paragraphs(splitByPage, policy)
+    )
 
     @SuppressLint("WakelockTimeout")
     open fun play() {
@@ -794,6 +862,29 @@ abstract class BaseReadAloudService : BaseService(),
         upTtsProgress(position)
     }
 
+    /** 由服务内部同步当前单元高亮区间；清空时机与进度快照一致。 */
+    private fun syncCurrentUnitRange() {
+        val chapterIndex = readerReadAloudChapter?.chapterIndex
+        val unit = currentPlaybackUnit()
+        currentUnitRange = if (chapterIndex == null || unit == null) {
+            null
+        } else if (unit.isChapterTitle || unit.map == null) {
+            ReadAloudUnitHighlightRange(
+                chapterIndex = chapterIndex,
+                start = 0,
+                endInclusive = unit.text.length - 1,
+                isTitle = true,
+            )
+        } else {
+            ReadAloudUnitHighlightRange(
+                chapterIndex = chapterIndex,
+                start = unit.startPosition,
+                endInclusive = unit.map.positionAt(unit.text.length - 1),
+                isTitle = false,
+            )
+        }
+    }
+
     protected fun updateReadAloudProgressSnapshot(progress: Int) {
         currentChapterIndex = readerReadAloudChapter?.chapterIndex ?: currentChapterIndex
         val newProgress = progress.coerceAtLeast(0)
@@ -867,9 +958,7 @@ abstract class BaseReadAloudService : BaseService(),
             playStop()
             var foundPreviousReadableParagraph = false
             do {
-                nowSpeak--
-                readAloudNumber -= contentList[nowSpeak].length + 1 + paragraphStartPos
-                paragraphStartPos = 0
+                moveToUnit(nowSpeak - 1)
                 foundPreviousReadableParagraph =
                     !contentList[nowSpeak].matches(AppPattern.notReadAloudRegex)
             } while (!foundPreviousReadableParagraph && nowSpeak > 0)
@@ -879,7 +968,6 @@ abstract class BaseReadAloudService : BaseService(),
                 return
             }
             readerReadAloudChapter?.let {
-                readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
                 if (readAloudNumber < it.pageStart(pageIndex)) {
                     pageIndex--
                     if (sessionStore.state.value.followReadAloudPosition) {
@@ -906,13 +994,10 @@ abstract class BaseReadAloudService : BaseService(),
             } ?: nextChapter()
             return
         }
-        if (nowSpeak < contentList.size - 1) {
+        if (nowSpeak < playbackUnits.lastIndex) {
             playStop()
-            readAloudNumber += contentList[nowSpeak].length.plus(1) - paragraphStartPos
-            paragraphStartPos = 0
-            nowSpeak++
+            moveToUnit(nowSpeak + 1)
             readerReadAloudChapter?.let {
-                readAloudNumber = paragraphChapterPositionAt(nowSpeak) ?: 0
                 if (pageIndex + 1 < it.pageCount
                     && readAloudNumber >= it.pageStart(pageIndex + 1)
                 ) {
@@ -935,11 +1020,13 @@ abstract class BaseReadAloudService : BaseService(),
         playbackCursor = cursor
         nowSpeak = cursor.cueIndex
         paragraphStartPos = cursor.offset
-        readAloudNumber = cue.chapterStart
+        readAloudNumber = unitStartPositionAt(cursor.cueIndex) ?: cue.chapterStart
+        syncCurrentUnitRange()
         publishPlaybackInfo(cursor)
         readerReadAloudChapter?.let { chapter ->
             val follow = sessionStore.state.value.followReadAloudPosition
-            val targetPosition = cue.chapterStart + cursor.offset
+            val targetPosition = currentPlaybackUnit()?.map?.positionAt(cursor.offset)
+                ?: cue.chapterStart + cursor.offset
             val targetPage = chapter.pageIndexAt(targetPosition)
             while (pageIndex < targetPage) {
                 pageIndex++
@@ -963,7 +1050,8 @@ abstract class BaseReadAloudService : BaseService(),
         sessionStore.updatePlayback(ReadAloudPlaybackInfo(
             chapterTitle = readerReadAloudChapter?.title.orEmpty(),
             chapterIndex = readerReadAloudChapter?.chapterIndex ?: -1,
-            chapterPosition = cue.chapterStart + cursor.offset,
+            chapterPosition = playbackUnits.getOrNull(cursor.cueIndex)?.map
+                ?.positionAt(cursor.offset) ?: cue.chapterStart,
             chapterLength = playbackQueue.cues.lastOrNull()?.chapterEnd ?: cue.chapterEnd,
             text = cue.text,
             engineName = cue.voice?.displayName.orEmpty(),
@@ -1206,19 +1294,16 @@ abstract class BaseReadAloudService : BaseService(),
             positionMs = positionMs,
             charsPerSecond = currentCharsPerSecond(),
             chapterLength = chapter.chapterLength,
-            content = contentList,
-            chapterPositions = contentChapterPositions,
+            units = playbackUnits,
         ) ?: return
         val wasPaused = pause
         ++prepareReadAloudGeneration
         prepareReadAloudJob?.cancel()
         playStop()
         onPlaybackStateReplaced()
-        nowSpeak = target.paragraphIndex
-        paragraphStartPos = target.offset
-        readAloudNumber = target.chapterPosition - target.offset
+        moveToUnit(target.unitIndex, target.offset)
         playbackCursor = if (hasSpeechPlaybackQueue) {
-            ReadAloudPlaybackCursor(target.paragraphIndex, target.offset)
+            ReadAloudPlaybackCursor(target.unitIndex, target.offset)
         } else {
             null
         }
@@ -1779,39 +1864,39 @@ internal fun estimatedReadAloudTimeMs(
     return (chars * 1000.0 / charsPerSecond).toLong()
 }
 
+/** 当前朗读单元的高亮区间（含标题标志；标题坐标系独立）。 */
+data class ReadAloudUnitHighlightRange(
+    val chapterIndex: Int,
+    val start: Int,
+    val endInclusive: Int,
+    val isTitle: Boolean,
+)
+
 internal data class ReadAloudMediaSeekPosition(
-    val paragraphIndex: Int,
+    val unitIndex: Int,
     val offset: Int,
     val chapterPosition: Int,
 )
 
-/** 时间轴只对应正文；换行间隙落到下一段，章末落到最后一个字符，避免提交空发言。 */
+/** 时间轴只对应正文；删除块/段末落到下一个实字，章末落到最后一个字符。 */
 internal fun resolveReadAloudMediaSeek(
     positionMs: Long,
     charsPerSecond: Float,
     chapterLength: Int,
-    content: List<String>,
-    chapterPositions: List<Int?>,
+    units: List<PlaybackUnit>,
 ): ReadAloudMediaSeekPosition? {
     if (chapterLength <= 0 || !charsPerSecond.isFinite() || charsPerSecond <= 0f) return null
     val position = (positionMs.coerceAtLeast(0) * charsPerSecond.toDouble() / 1000.0)
         .coerceAtMost((chapterLength - 1).toDouble()).toInt()
-    var lastBodyIndex = -1
-    for (index in content.indices) {
-        val start = chapterPositions.getOrNull(index) ?: continue
-        if (content[index].isEmpty()) continue
-        lastBodyIndex = index
-        if (start + content[index].length > position) break
-    }
-    if (lastBodyIndex < 0) return null
-    val text = content[lastBodyIndex]
-    val start = chapterPositions[lastBodyIndex] ?: return null
-    var offset = (position - start).coerceIn(0, text.lastIndex)
+    val cursor = ReadAloudUnitSource.cursorAt(units, position) ?: return null
+    val text = units[cursor.first].text
+    var offset = cursor.second.coerceIn(0, (text.length - 1).coerceAtLeast(0))
     // 媒体毫秒值可以落在 UTF-16 代理项中间，保留完整字符供引擎合成。
     if (offset > 0 && text[offset].isLowSurrogate() && text[offset - 1].isHighSurrogate()) {
         offset--
     }
-    return ReadAloudMediaSeekPosition(lastBodyIndex, offset, start + offset)
+    val chapterPosition = units[cursor.first].map?.positionAt(offset) ?: offset
+    return ReadAloudMediaSeekPosition(cursor.first, offset, chapterPosition)
 }
 
 /**

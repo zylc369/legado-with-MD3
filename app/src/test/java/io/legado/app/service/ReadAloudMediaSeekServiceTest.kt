@@ -64,8 +64,19 @@ class ReadAloudMediaSeekServiceTest {
             semanticContent = "abcdef\nghij",
             pageStarts = listOf(0, 4, 7),
         )
-        service.contentList = listOf("Reading chapter", "abcdef", "ghij")
-        setServiceField("contentChapterPositions", listOf(null, 0, 7))
+        service.replacePlaybackUnitsForTest(
+            listOf(
+                io.legado.app.domain.model.readaloud.PlaybackUnit.chapterTitle("Reading chapter"),
+                io.legado.app.domain.model.readaloud.PlaybackUnit(
+                    text = "abcdef",
+                    map = io.legado.app.domain.model.readaloud.PlaybackPositionMap.identity(0),
+                ),
+                io.legado.app.domain.model.readaloud.PlaybackUnit(
+                    text = "ghij",
+                    map = io.legado.app.domain.model.readaloud.PlaybackPositionMap.identity(7),
+                ),
+            )
+        )
         setServiceField("finishChapterAtIndex", 5)
         setServiceField("chapterQuota", 3)
         setServiceField("androidMediaControlEnabled", true)
@@ -173,6 +184,9 @@ class ReadAloudMediaSeekServiceTest {
         }
 
     class SeekService : BaseReadAloudService() {
+
+        fun replacePlaybackUnitsForTest(units: List<io.legado.app.domain.model.readaloud.PlaybackUnit>) =
+            replacePlaybackUnits(units)
         var stopCount = 0
         var playCount = 0
         var lastPlayedText = ""

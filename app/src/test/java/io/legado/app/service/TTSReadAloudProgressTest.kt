@@ -35,38 +35,26 @@ class TTSReadAloudProgressTest {
     }
 
     @Test
-    fun nextParagraphAdvancesFromCurrentRangePosition() {
-        assertEquals(
-            201,
-            nextParagraphPosition(
-                currentPosition = 180,
-                paragraphLength = 100,
-                paragraphStartPosition = 80,
-            )
+    fun unitAdvanceConsumesThePositionTable() {
+        // 推进只读单元表：readAloudNumber 来自单元起点，不再有 +1 猜测算术。
+        val units = listOf(
+            io.legado.app.domain.model.readaloud.PlaybackUnit(
+                text = "a".repeat(100),
+                map = io.legado.app.domain.model.readaloud.PlaybackPositionMap.identity(120),
+            ),
+            io.legado.app.domain.model.readaloud.PlaybackUnit(
+                text = "b",
+                map = io.legado.app.domain.model.readaloud.PlaybackPositionMap.identity(221),
+            ),
         )
-    }
-
-    @Test
-    fun nextParagraphPreservesInitialSelectionOffset() {
-        assertEquals(
-            201,
-            nextParagraphPosition(
-                currentPosition = 120,
-                paragraphLength = 100,
-                paragraphStartPosition = 20,
-            )
-        )
+        assertEquals(221, units[1].startPosition)
+        assertEquals(80, units[0].map!!.offsetAt(200))
     }
 
     @Test
     fun rangeProgressUsesTheUtteranceStartSnapshot() {
-        assertEquals(
-            340,
-            currentRangePosition(
-                utteranceStartPosition = 200,
-                rangeStart = 140,
-            )
-        )
+        val map = io.legado.app.domain.model.readaloud.PlaybackPositionMap.identity(200)
+        assertEquals(340, map.positionAt(140))
     }
 
     @Test

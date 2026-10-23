@@ -219,12 +219,9 @@ class ReaderPageNavigatorTest {
         val title = body.copy(emphasized = true, chapterPosition = 50, paragraphIndex = 0)
         val page = page(0, 0).copy(elements = listOf(title, body))
         assertEquals(1, ReaderPageNavigator.pageContext(listOf(page), 0)?.endPosition)
-        assertEquals(1, ReaderPageNavigator.bodyParagraphAt(listOf(page), 4, 50))
-        assertNull(ReaderPageNavigator.bodyParagraphAt(listOf(page), 5, 50))
         val titleOnly = page.copy(elements = listOf(title))
         assertEquals(0, ReaderPageNavigator.pageStart(titleOnly))
         assertNull(ReaderPageNavigator.pageContext(listOf(titleOnly), 0)?.contentStartPosition)
-        assertNull(ReaderPageNavigator.bodyParagraphAt(listOf(titleOnly), 4, 50))
     }
 
     @Test

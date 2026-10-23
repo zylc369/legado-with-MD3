@@ -2,6 +2,7 @@ package io.legado.app.feature.customtts
 
 import androidx.compose.runtime.Immutable
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
+import io.legado.app.domain.model.readaloud.ReadAloudVoice
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -53,7 +54,7 @@ data class CustomTtsUiState(
     val defaultVoiceId: String = "",
     // 混合朗读
     val firstSegmentFallback: Boolean = true,
-    val fallbackEngineType: String = "system",
+    val fallbackEngineType: String = ReadAloudVoice.ENGINE_SYSTEM,
     val fallbackEngineId: String = "",
     val fallbackSpeakerId: String = "",
     val fallbackSpeed: Float = 1.0f,

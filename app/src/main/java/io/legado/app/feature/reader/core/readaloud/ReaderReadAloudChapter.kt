@@ -48,12 +48,6 @@ data class ReaderReadAloudChapter(
         return if (policy == null) source else policy.applyTo(source)
     }
 
-    fun paragraphIndexAtOrAfter(
-        position: Int,
-        splitByPage: Boolean,
-        policy: ContentSplitPolicy? = null,
-    ): Int = paragraphs(splitByPage, policy).indexOfFirst { it.endPosition >= position }
-
     fun canonicalSpeechParagraphs(
         splitByPage: Boolean,
         policy: ContentSplitPolicy? = null,

@@ -2895,10 +2895,15 @@ private fun ReaderPage.isSearchResult(text: ReaderElement.Text): Boolean {
     return text.chapterPosition <= maxOf(start, end) && textEnd >= minOf(start, end)
 }
 
-// 旧 `TextPage.upPageAloudSpan` 遍历页内**所有**行（含标题行）设置朗读高亮，因此这里不再
-// 排除 emphasized：标题/标题分段在被朗读时同样高亮。
-private fun ReaderPage.isReadAloud(text: ReaderElement.Text): Boolean =
-    readAloudParagraphIndex != null && text.paragraphIndex == readAloudParagraphIndex
+// 高亮当前朗读单元的精确字符区间（读什么高亮什么）：按元素位置与区间求交，
+// 与分段/自然段边界无关；标题单元使用标题坐标系（emphasized 元素）。
+private fun ReaderPage.isReadAloud(text: ReaderElement.Text): Boolean {
+    val start = readAloudStart ?: return false
+    val end = readAloudEndInclusive ?: return false
+    if (text.emphasized != readAloudIsTitle) return false
+    val textEnd = text.chapterPosition + text.value.length - 1
+    return text.chapterPosition <= maxOf(start, end) && textEnd >= minOf(start, end)
+}
 
 private fun ReaderPage.resolvedColorArgb(text: ReaderElement.Text, accentColorArgb: Int): Int =
     if (text.link != null || isSearchResult(text) || isReadAloud(text)) accentColorArgb else text.style.colorArgb

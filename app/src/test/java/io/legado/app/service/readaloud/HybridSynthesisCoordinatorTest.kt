@@ -1,7 +1,6 @@
 package io.legado.app.service.readaloud
 
 import com.opensecurity.customtts.hybrid.HybridTtsPolicy
-import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsConfig
 import com.opensecurity.customtts.model.HybridTtsDecision
@@ -18,9 +17,6 @@ import java.io.File
 
 class HybridSynthesisCoordinatorTest {
 
-    private fun seg(text: String) =
-        CustomTtsSegment(text = text, startOffset = 0, endOffset = text.length)
-
     private fun policy(firstFallback: Boolean = false) =
         HybridTtsPolicy(HybridTtsConfig(firstSegmentFallback = firstFallback))
 
@@ -30,8 +26,8 @@ class HybridSynthesisCoordinatorTest {
     /** 测试作用域内构建协调器：IO 合成调度器与测试调度器对齐（虚拟时间可控）。 */
     private fun TestScope.coordinator(
         policy: HybridTtsPolicy,
-        remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
-        fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
+        remoteSynth: suspend (String, CustomTtsVoiceParams) -> File?,
+        fallbackSynth: suspend (String, Float) -> File?,
         fallbackEnabled: Boolean = true,
     ) = HybridSynthesisCoordinator(
         scope = this,
@@ -53,7 +49,7 @@ class HybridSynthesisCoordinatorTest {
             remoteSynth = { _, _ -> remote },
             fallbackSynth = { _, _ -> null },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertEquals(remote, coordinator.remoteReady(0))
     }
@@ -69,7 +65,7 @@ class HybridSynthesisCoordinatorTest {
             },
             fallbackSynth = { _, _ -> fallback },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertNull(coordinator.remoteReady(0))
     }
@@ -82,7 +78,7 @@ class HybridSynthesisCoordinatorTest {
             remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> fallback },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertNull(coordinator.remoteReady(0))
         assertEquals(fallback, coordinator.fallbackFile(0))
@@ -95,7 +91,7 @@ class HybridSynthesisCoordinatorTest {
             remoteSynth = { _, _ -> null },
             fallbackSynth = { _, _ -> null },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertNull(coordinator.remoteReady(0))
         assertNull(coordinator.fallbackFile(0))
@@ -108,7 +104,7 @@ class HybridSynthesisCoordinatorTest {
             remoteSynth = { _, _ -> temp("remote") },
             fallbackSynth = { _, _ -> temp("fallback") },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = true))
     }
@@ -120,7 +116,7 @@ class HybridSynthesisCoordinatorTest {
             remoteSynth = { _, _ -> temp("remote") },
             fallbackSynth = { _, _ -> temp("fallback") },
         )
-        coordinator.start(listOf(seg("a"), seg("b")))
+        coordinator.start(listOf("a", "b"))
         assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = false))
         assertEquals(HybridTtsDecision.Remote, coordinator.decide(1, remoteReady = true))
         assertEquals(listOf(HybridTtsSwitch.ToRemote), coordinator.drainSwitches())
@@ -138,7 +134,7 @@ class HybridSynthesisCoordinatorTest {
             },
             fallbackEnabled = false,
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertNull(coordinator.fallbackFile(0))
         assertTrue(!fallbackCalled)
@@ -156,7 +152,7 @@ class HybridSynthesisCoordinatorTest {
             },
             fallbackSynth = { _, _ -> null },
         )
-        coordinator.start(listOf(seg("a")))
+        coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         coordinator.stop()
         assertTrue(!completed)

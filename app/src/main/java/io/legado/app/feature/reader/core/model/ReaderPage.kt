@@ -186,8 +186,14 @@ data class ReaderPage(
     val searchEndInclusive: Int? = null,
     /** Whether the dynamic search range is in the independent title coordinate space. */
     val searchIsTitle: Boolean = false,
-    /** Dynamic read-aloud paragraph, likewise independent of the pagination layout. */
-    val readAloudParagraphIndex: Int? = null,
+    /**
+     * 当前朗读单元的精确区间（读什么高亮什么；跨段单元覆盖段间区间）。
+     * 与 search 一样独立于分页布局，滚动绘制按位置交集解析。
+     */
+    val readAloudStart: Int? = null,
+    val readAloudEndInclusive: Int? = null,
+    /** 区间是否在标题坐标系（章节标题被朗读时为 true）。 */
+    val readAloudIsTitle: Boolean = false,
     /** 邻章未装载时预置的"加载中"占位页，分页批次落地后被同 id 真实页替换。 */
     val isPlaceholder: Boolean = false,
     /**

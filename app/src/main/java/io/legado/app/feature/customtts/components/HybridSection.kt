@@ -68,18 +68,20 @@ fun HybridSection(
             title = "兜底速度 %.1fx".format(state.fallbackSpeed),
             value = state.fallbackSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 4,
-            stepSize = 0.5f,
+            steps = 24,
+            stepSize = 0.1f,
             showDecimal = true,
+            valueFormat = { "%.1f".format(it) },
             onValueChange = { onIntent(CustomTtsIntent.SetFallbackSpeed(it)) },
         )
         TinySliderSettingItem(
             title = "定制速度 %.1fx".format(state.customSpeed),
             value = state.customSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 4,
-            stepSize = 0.5f,
+            steps = 24,
+            stepSize = 0.1f,
             showDecimal = true,
+            valueFormat = { "%.1f".format(it) },
             onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
         )
         Text(

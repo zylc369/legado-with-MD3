@@ -4,6 +4,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import io.legado.app.R
 import io.legado.app.constant.AppLog
+import io.legado.app.help.readaloud.playback.SystemTtsEngineFactory
 import io.legado.app.utils.buildMainHandler
 import io.legado.app.utils.splitNotBlank
 import io.legado.app.utils.toastOnUi
@@ -24,10 +25,6 @@ class TTS {
     private var text: String? = null
 
     private var onInit = false
-
-    private val initListener by lazy {
-        InitListener()
-    }
 
     private val utteranceListener by lazy {
         TTSUtteranceListener()
@@ -57,7 +54,7 @@ class TTS {
         }
         if (textToSpeech == null) {
             onInit = true
-            textToSpeech = TextToSpeech(appCtx, initListener)
+            textToSpeech = newTts()
         } else {
             addTextToSpeakList()
         }
@@ -82,7 +79,7 @@ class TTS {
             var result = tts.speak("", TextToSpeech.QUEUE_FLUSH, null, null)
             if (result == TextToSpeech.ERROR) {
                 clearTts()
-                textToSpeech = TextToSpeech(appCtx, initListener)
+                textToSpeech = newTts()
                 return
             }
             text?.splitNotBlank("\n")?.forEachIndexed { i, s ->
@@ -97,21 +94,15 @@ class TTS {
         }
     }
 
-    /**
-     * 初始化监听
-     */
-    private inner class InitListener : TextToSpeech.OnInitListener {
-
-        override fun onInit(status: Int) {
-            if (status == TextToSpeech.SUCCESS) {
-                textToSpeech?.setOnUtteranceProgressListener(utteranceListener)
-                addTextToSpeakList()
-            } else {
-                appCtx.toastOnUi(R.string.tts_init_failed)
-            }
-            onInit = false
+    private fun newTts(): TextToSpeech = SystemTtsEngineFactory.create(appCtx, "") { tts ->
+        if (tts != null) {
+            textToSpeech = tts
+            tts.setOnUtteranceProgressListener(utteranceListener)
+            addTextToSpeakList()
+        } else {
+            appCtx.toastOnUi(R.string.tts_init_failed)
         }
-
+        onInit = false
     }
 
     /**

@@ -1,7 +1,6 @@
 package io.legado.app.service.readaloud
 
 import com.opensecurity.customtts.hybrid.HybridTtsPolicy
-import com.opensecurity.customtts.model.CustomTtsSegment
 import com.opensecurity.customtts.model.CustomTtsVoiceParams
 import com.opensecurity.customtts.model.HybridTtsDecision
 import com.opensecurity.customtts.model.HybridTtsSwitch
@@ -30,8 +29,8 @@ class HybridSynthesisCoordinator(
     private val remoteTimeoutMs: Long,
     private val remoteParams: CustomTtsVoiceParams,
     private val fallbackSpeed: Float,
-    private val remoteSynth: suspend (CustomTtsSegment, CustomTtsVoiceParams) -> File?,
-    private val fallbackSynth: suspend (CustomTtsSegment, Float) -> File?,
+    private val remoteSynth: suspend (String, CustomTtsVoiceParams) -> File?,
+    private val fallbackSynth: suspend (String, Float) -> File?,
     private val fallbackTimeoutMs: Long = 15_000,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** 系统兜底改由 TTS 直接 speak 时关闭文件兜底，避免无意义的落盘合成。 */
@@ -40,13 +39,13 @@ class HybridSynthesisCoordinator(
     private val log: (String) -> Unit = {},
     private val logError: (String, Throwable) -> Unit = { _, _ -> },
 ) {
-    private var segments: List<CustomTtsSegment> = emptyList()
+    private var texts: List<String> = emptyList()
     private val remoteJobs = HashMap<Int, Deferred<File?>>()
     private val fallbackJobs = HashMap<Int, Deferred<File?>>()
 
-    fun start(segmentList: List<CustomTtsSegment>) {
+    fun start(textList: List<String>) {
         stop()
-        segments = segmentList
+        texts = textList
         policy.reset()
     }
 
@@ -57,7 +56,7 @@ class HybridSynthesisCoordinator(
 
     /** 非阻塞读取：该段远端已就绪则返回文件，否则 null。 */
     fun remoteReady(index: Int): File? {
-        if (index !in segments.indices) return null
+        if (index !in texts.indices) return null
         schedule(index)
         val job = remoteJobs[index] ?: return null
         if (!job.isCompleted) return null
@@ -90,17 +89,17 @@ class HybridSynthesisCoordinator(
         fallbackJobs.values.forEach { it.cancel() }
         remoteJobs.clear()
         fallbackJobs.clear()
-        segments = emptyList()
+        texts = emptyList()
         policy.reset()
     }
 
     private fun schedule(index: Int) {
-        if (index !in segments.indices) return
-        val segment = segments[index]
+        if (index !in texts.indices) return
+        val segment = texts[index]
         if (index !in remoteJobs) {
             log(
                 "混合TTS: 预取段 $index remote（voice=${remoteParams.voiceId.ifEmpty { "<默认>" }}" +
-                    ", timeout=${remoteTimeoutMs}ms, textLen=${segment.text.length}）"
+                    ", timeout=${remoteTimeoutMs}ms, textLen=${segment.length}）"
             )
             remoteJobs[index] = scope.async(ioDispatcher) {
                 val startedAt = System.currentTimeMillis()
@@ -131,7 +130,7 @@ class HybridSynthesisCoordinator(
         if (fallbackEnabled && index !in fallbackJobs) {
             log(
                 "混合TTS: 预取段 $index fallback（speed=$fallbackSpeed" +
-                    ", textLen=${segment.text.length}）"
+                    ", textLen=${segment.length}）"
             )
             fallbackJobs[index] = scope.async(ioDispatcher) {
                 try {

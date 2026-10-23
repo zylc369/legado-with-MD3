@@ -37,7 +37,8 @@ class ScrollPageDrawCacheTest {
         val highlighted = original.copy(
             searchStart = 0,
             searchEndInclusive = 3,
-            readAloudParagraphIndex = 0,
+            readAloudStart = 0,
+            readAloudEndInclusive = 3,
         )
         val cache = ScrollPageDrawCache()
 

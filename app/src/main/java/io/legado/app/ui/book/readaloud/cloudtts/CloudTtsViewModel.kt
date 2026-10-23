@@ -34,6 +34,7 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.help.http.text
 import io.legado.app.help.readaloud.playback.CloudTtsAudioSynthesizer
 import io.legado.app.help.readaloud.playback.SystemTtsFileSynthesizer
+import io.legado.app.help.readaloud.playback.ReadAloudVoiceCatalog
 import io.legado.app.help.readaloud.playback.SystemTtsVoiceCatalog
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
@@ -448,36 +449,24 @@ class CloudTtsViewModel(
         engineId: String,
         native: List<TtsNativeVoice>,
         selectedSpeaker: String?,
-    ): List<CloudTtsVoiceOptionUi> {
-        val options = LinkedHashMap<String, CloudTtsVoiceOptionUi>()
-        native.forEach { voice ->
-            options[voice.id] = CloudTtsVoiceOptionUi(
-                speakerId = voice.id,
-                label = voice.displayName.ifBlank { voice.id },
-                description = listOf(voice.locale, voice.gender)
-                    .filter(String::isNotBlank).joinToString(" · "),
-                selected = voice.id == selectedSpeaker,
+    ): List<CloudTtsVoiceOptionUi> =
+        ReadAloudVoiceCatalog.merge(
+            engineType = engineType,
+            engineId = engineId,
+            native = native,
+            presets = voices,
+            defaultLabel = defaultVoiceLabel(engineType),
+        ).map { choice ->
+            CloudTtsVoiceOptionUi(
+                speakerId = choice.speakerId,
+                label = choice.label,
+                description = choice.description,
+                selected = choice.speakerId == selectedSpeaker,
+                editable = choice.userManaged,
+                deletable = choice.userManaged,
+                presetId = choice.presetId?.takeIf { choice.userManaged },
             )
         }
-        voices.asSequence()
-            .filter { it.engineType == engineType && it.engineId == engineId }
-            .forEach { preset ->
-                val userManaged = preset.managedBy == ReadAloudVoice.MANAGED_BY_USER
-                val existing = options[preset.speakerId]
-                options[preset.speakerId] = CloudTtsVoiceOptionUi(
-                    speakerId = preset.speakerId,
-                    label = preset.displayName.takeIf(String::isNotBlank)
-                        ?: existing?.label
-                        ?: defaultVoiceLabel(engineType),
-                    description = existing?.description.orEmpty(),
-                    selected = preset.speakerId == selectedSpeaker,
-                    editable = userManaged,
-                    deletable = userManaged,
-                    presetId = preset.id.takeIf { userManaged },
-                )
-            }
-        return options.values.toList()
-    }
 
     private suspend fun fetchNativeVoices(
         engineType: String,

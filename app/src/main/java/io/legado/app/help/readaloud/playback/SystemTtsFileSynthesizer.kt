@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import io.legado.app.constant.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -92,19 +93,40 @@ class SystemTtsFileSynthesizer(
             if (instance.setVoice(voice) == TextToSpeech.ERROR) return@withLock false
         }
         val speakId = "legado-speak-${Uuid.random()}"
+        AppLog.putDebug(
+            "混合TTS: 系统TTS speak engine=$engine voice=$voiceName" +
+                " rate=$speechRate textLen=${text.length} id=$speakId"
+        )
+        var rangeCount = 0
+        var firstRange = -1
+        var lastRange = -1
         suspendCancellableCoroutine { continuation ->
             instance.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) = Unit
+                override fun onStart(utteranceId: String?) {
+                    if (utteranceId == speakId) {
+                        AppLog.putDebug("混合TTS: 系统TTS onStart id=$speakId")
+                    }
+                }
 
                 override fun onDone(completedId: String?) {
                     if (completedId == speakId && continuation.isActive) {
+                        AppLog.putDebug(
+                            "混合TTS: 系统TTS onDone id=$speakId ranges=$rangeCount" +
+                                " first=$firstRange last=$lastRange"
+                        )
                         continuation.resume(true)
                     }
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(failedId: String?) {
-                    if (failedId == speakId && continuation.isActive) continuation.resume(false)
+                    if (failedId == speakId && continuation.isActive) {
+                        AppLog.putDebug(
+                            "混合TTS: 系统TTS onError id=$speakId ranges=$rangeCount" +
+                                " first=$firstRange last=$lastRange"
+                        )
+                        continuation.resume(false)
+                    }
                 }
 
                 @Suppress("DEPRECATION")
@@ -112,6 +134,10 @@ class SystemTtsFileSynthesizer(
 
                 override fun onStop(stoppedId: String?, interrupted: Boolean) {
                     if (stoppedId == speakId && continuation.isActive) {
+                        AppLog.putDebug(
+                            "混合TTS: 系统TTS onStop id=$speakId ranges=$rangeCount" +
+                                " first=$firstRange last=$lastRange"
+                        )
                         continuation.resume(false)
                     }
                 }
@@ -123,6 +149,9 @@ class SystemTtsFileSynthesizer(
                     frame: Int,
                 ) {
                     if (utteranceId == speakId) {
+                        rangeCount++
+                        if (firstRange < 0) firstRange = start
+                        lastRange = start
                         mainHandler.post { onRangeStart(start) }
                     }
                 }
@@ -154,27 +183,9 @@ class SystemTtsFileSynthesizer(
     private suspend fun ensureEngine(engine: String): TextToSpeech? {
         if (tts != null && activeEngine == engine) return tts
         close()
-        return withContext(Dispatchers.Main.immediate) {
-            suspendCancellableCoroutine { continuation ->
-                lateinit var instance: TextToSpeech
-                val listener = TextToSpeech.OnInitListener { status ->
-                    if (!continuation.isActive) return@OnInitListener
-                    if (status == TextToSpeech.SUCCESS) {
-                        tts = instance
-                        activeEngine = engine
-                        continuation.resume(instance)
-                    } else {
-                        instance.shutdown()
-                        continuation.resume(null)
-                    }
-                }
-                instance = if (engine.isBlank()) {
-                    TextToSpeech(appContext, listener)
-                } else {
-                    TextToSpeech(appContext, listener, engine)
-                }
-                continuation.invokeOnCancellation { instance.shutdown() }
-            }
-        }
+        val instance = SystemTtsEngineFactory.create(appContext, engine) ?: return null
+        tts = instance
+        activeEngine = engine
+        return instance
     }
 }

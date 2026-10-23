@@ -29,15 +29,6 @@ data class ReaderPageContext(
 )
 
 object ReaderPageNavigator {
-    fun bodyParagraphAt(pages: List<ReaderPage>, chapterIndex: Int, chapterPosition: Int): Int? = pages
-        .asSequence()
-        .filter { it.id.chapterIndex == chapterIndex }
-        .flatMap { it.elements.asSequence() }
-        .filterIsInstance<ReaderElement.Text>()
-        .filter { !it.emphasized && it.paragraphIndex >= 0 && it.chapterPosition <= chapterPosition }
-        .maxByOrNull { it.chapterPosition }
-        ?.paragraphIndex
-
     fun window(pages: List<ReaderPage>, pageIndex: Int): ReaderPageWindow {
         if (pages.isEmpty()) return ReaderPageWindow()
         val index = pageIndex.coerceIn(pages.indices)
