@@ -98,6 +98,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -215,14 +217,26 @@ class HttpReadAloudService : BaseReadAloudService(),
             speakHybridSystem(unit)
         }
 
-        override suspend fun playAudioFile(file: File) {
-            playHybridAudio(file)
+        override suspend fun playAudioFile(file: File, bakedSpeed: Float, targetSpeed: () -> Float) {
+            playHybridAudio(file, bakedSpeed, targetSpeed)
         }
     }
     private var hybridDriverJob: Job? = null
     private var hybridAudioDone: CompletableDeferred<Unit>? = null
     /** 当前混合段是否由系统 TTS 直接 speak（决定暂停时是否需要取消驱动）。 */
     private var hybridCurrentSystemTts = false
+    /** 当前混合段音频的烘焙速度与目标速度来源（播放中为非空，比值调速用）。 */
+    private var hybridAudioBakedSpeed = 1f
+    private var hybridAudioTargetSpeed: (() -> Float)? = null
+
+    private fun currentHybridSettings(): CustomTtsSettings =
+        customTtsSettingsGateway.currentSettings
+
+    private fun remoteTargetSpeed(): () -> Float =
+        { currentHybridSettings().hybrid.customSpeed }
+
+    private fun fallbackTargetSpeed(): () -> Float =
+        { currentHybridSettings().hybrid.fallbackSpeed }
 
     private fun isCustomHybridMode(): Boolean {
         val httpTts = ReadAloud.httpTTS ?: return false
@@ -260,18 +274,19 @@ class HttpReadAloudService : BaseReadAloudService(),
     /**
      * 播放端实际倍速。
      *
-     * 混合模式：兜底/定制速度就是**最终倍速**（分别在系统 TTS 合成、服务端合成各应用一次），
-     * 播放端固定 1.0，避免全局语速再乘一层（1.5×2.0=3.0）。
+     * 混合模式：合成时烘入引擎原生速度，播放端按 `目标/烘焙` 比值调速（保存新速度
+     * 立即生效；全局语速不参与，避免再乘一层）。系统兜底段不经播放器。
      * 普通引擎：仍使用全局朗读语速。
      */
     private val effectivePlaybackSpeed: Float
-        get() = if (isCustomHybridMode()) 1f else globalPlaybackSpeed
+        get() = if (isCustomHybridMode()) hybridFilePlaybackSpeed() else globalPlaybackSpeed
 
     private fun clearHybridState() {
         hybridDriverJob?.cancel()
         hybridDriverJob = null
         hybridAudioDone = null
         hybridCurrentSystemTts = false
+        hybridAudioTargetSpeed = null
         systemTtsFileSynthesizer.stopSpeaking()
         hybridCoordinator?.stop()
         hybridCoordinator = null
@@ -288,6 +303,21 @@ class HttpReadAloudService : BaseReadAloudService(),
                 // 全局语速为播放端变速, 设置变化即时生效, 无需重新合成
                 exoPlayer.setPlaybackSpeed(effectivePlaybackSpeed)
             }
+        }
+        lifecycleScope.launch {
+            // 定制速度/兜底速度保存后：正在播的混合段按新比值立即调速
+            //（系统兜底段 speak 不改口中途语速，下一段用新 speechRate）。
+            customTtsSettingsGateway.settings
+                .map { it.hybrid.customSpeed to it.hybrid.fallbackSpeed }
+                .distinctUntilChanged()
+                .collect {
+                    if (isHybridDriverActive && hybridAudioTargetSpeed != null) {
+                        // 暂停中只更新倍速（恢复后即按新比值）；不重启字符推进，
+                        // 否则暂停时高亮/阅读位置会空转前进
+                        exoPlayer.setPlaybackSpeed(hybridFilePlaybackSpeed())
+                        if (!pause) upPlayPos()
+                    }
+                }
         }
         lifecycleScope.launch {
             readSettingsGateway.settings.collectLatest { readSettings = it }
@@ -500,16 +530,21 @@ class HttpReadAloudService : BaseReadAloudService(),
                         " firstText=${startUnit.text.take(12)}"
                 )
 
-                val voiceParams = settings.voices[settings.defaultVoiceId]
-                    ?: CustomTtsVoiceParams()
+                // 速度/超时按段现读：保存后新请求用新值；旧段由播放端比值调速接管。
                 val coordinator = HybridSynthesisCoordinator(
                     scope = lifecycleScope,
                     policy = HybridTtsPolicy(settings.hybrid),
-                    remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toLong(),
-                    remoteParams = voiceParams.copy(speed = settings.hybrid.customSpeed),
-                    fallbackSpeed = settings.hybrid.fallbackSpeed,
+                    remoteTimeoutMs = { currentHybridSettings().hybrid.remoteTimeoutMs.toLong() },
+                    remoteParams = {
+                        val current = currentHybridSettings()
+                        (current.voices[current.defaultVoiceId] ?: CustomTtsVoiceParams())
+                            .copy(speed = current.hybrid.customSpeed)
+                    },
+                    fallbackSpeed = { currentHybridSettings().hybrid.fallbackSpeed },
                     remoteSynth = { text, params ->
-                        synthesizeRemoteSegment(text, params, settings.hybrid.remoteTimeoutMs)
+                        synthesizeRemoteSegment(
+                            text, params, currentHybridSettings().hybrid.remoteTimeoutMs,
+                        )
                     },
                     fallbackSynth = { text, speed -> synthesizeFallbackSegment(text, speed) },
                     remoteCacheProbe = ::probeRemoteCache,
@@ -606,8 +641,10 @@ class HttpReadAloudService : BaseReadAloudService(),
 
             val startedAt = System.currentTimeMillis()
             if (decision == HybridTtsDecision.Remote && remote != null) {
-                AppLog.putDebug("混合TTS: 段 $index 使用远端 ${remote.name}")
-                hybridPlaybackEngine.playAudioFile(remote)
+                AppLog.putDebug(
+                    "混合TTS: 段 $index 使用远端（baked=${remote.bakedSpeed}x）${remote.file.name}"
+                )
+                hybridPlaybackEngine.playAudioFile(remote.file, remote.bakedSpeed, remoteTargetSpeed())
             } else if (systemFallback) {
                 AppLog.putDebug(
                     "混合TTS: 段 $index 使用系统兜底 speak（remoteReady=${remote != null}）"
@@ -616,13 +653,20 @@ class HttpReadAloudService : BaseReadAloudService(),
             } else {
                 val fallback = coordinator.fallbackFile(index)
                 if (fallback != null) {
-                    AppLog.putDebug("混合TTS: 段 $index 使用兜底文件 ${fallback.name}")
-                    hybridPlaybackEngine.playAudioFile(fallback)
+                    AppLog.putDebug(
+                        "混合TTS: 段 $index 使用兜底文件（baked=${fallback.bakedSpeed}x）" +
+                            fallback.file.name
+                    )
+                    hybridPlaybackEngine.playAudioFile(
+                        fallback.file, fallback.bakedSpeed, fallbackTargetSpeed(),
+                    )
                 } else {
                     val fileName = md5SpeakFileName(units[index].text)
                     createSilentSound(fileName)
                     AppLog.putDebug("混合TTS: 段 $index 兜底失败，使用无声")
-                    hybridPlaybackEngine.playAudioFile(getSpeakFileAsMd5(fileName))
+                    hybridPlaybackEngine.playAudioFile(
+                        getSpeakFileAsMd5(fileName), 1f, fallbackTargetSpeed(),
+                    )
                 }
             }
             // 本段已结束：系统 TTS 不再占用，段间暂停走“保留驱动”的音频路径。
@@ -640,21 +684,35 @@ class HttpReadAloudService : BaseReadAloudService(),
         }
     }
 
+    /** 混合段目标/烘焙比值（保存新速度后的即时变速；不在音频播放中恒为 1）。 */
+    private fun hybridFilePlaybackSpeed(): Float {
+        val target = hybridAudioTargetSpeed?.invoke() ?: return 1f
+        return ReadAloudSpeed.hybridRatio(target, hybridAudioBakedSpeed)
+    }
+
     /** 播放一段本地音频，直到 STATE_ENDED（由播放器回调完成）。 */
-    private suspend fun playHybridAudio(file: File) {
+    private suspend fun playHybridAudio(
+        file: File,
+        bakedSpeed: Float,
+        targetSpeed: () -> Float,
+    ) {
         hybridCurrentSystemTts = false
+        hybridAudioBakedSpeed = bakedSpeed
+        hybridAudioTargetSpeed = targetSpeed
         playIndexJob?.cancel()
         val done = CompletableDeferred<Unit>()
         hybridAudioDone = done
         withContext(Main) {
             exoPlayer.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
             exoPlayer.prepare()
+            exoPlayer.setPlaybackSpeed(hybridFilePlaybackSpeed())
             if (!pause) exoPlayer.play()
         }
         try {
             done.await()
         } finally {
             if (hybridAudioDone === done) hybridAudioDone = null
+            hybridAudioTargetSpeed = null
         }
         playIndexJob?.cancel()
     }

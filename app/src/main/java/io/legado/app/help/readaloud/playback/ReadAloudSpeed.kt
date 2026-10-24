@@ -67,6 +67,16 @@ object ReadAloudSpeed {
     }
 
     /**
+     * 混合朗读播放端比值：音频合成时烘入了引擎原生速度（baked），保存新速度
+     * （target）后旧段不重新合成，播放端按 `target/baked` 比值即时变速；
+     * 新合成的段 baked == target，比值回到 1.0。不做 0.1 网格量化（会引入漂移）。
+     */
+    fun hybridRatio(target: Float, baked: Float): Float {
+        if (!target.isFinite()) return 1f
+        return (target / baked.coerceAtLeast(0.1f)).coerceIn(0.1f, 3f)
+    }
+
+    /**
      * HTTP 书源源参数 {{speakSpeed}} 的 0..85 刻度。
      *
      * 普通路径的契约是 `speakSpeed = httpTts.speed + 5`，而 `httpTts.speed = 5` 表示 1.0x，

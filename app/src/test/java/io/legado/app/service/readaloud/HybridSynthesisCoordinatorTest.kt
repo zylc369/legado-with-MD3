@@ -31,12 +31,14 @@ class HybridSynthesisCoordinatorTest {
         fallbackSynth: suspend (String, Float) -> File?,
         fallbackEnabled: Boolean = true,
         nowMs: () -> Long = System::currentTimeMillis,
+        remoteParams: () -> CustomTtsVoiceParams = { CustomTtsVoiceParams() },
+        fallbackSpeed: () -> Float = { 1f },
     ) = HybridSynthesisCoordinator(
         scope = this,
         policy = policy,
-        remoteTimeoutMs = 1_000,
-        remoteParams = CustomTtsVoiceParams(),
-        fallbackSpeed = 1f,
+        remoteTimeoutMs = { 1_000 },
+        remoteParams = remoteParams,
+        fallbackSpeed = fallbackSpeed,
         remoteSynth = remoteSynth,
         fallbackSynth = fallbackSynth,
         fallbackEnabled = fallbackEnabled,
@@ -54,7 +56,7 @@ class HybridSynthesisCoordinatorTest {
         )
         coordinator.start(listOf("a"))
         coordinator.prefetch(0)
-        assertEquals(remote, coordinator.remoteReady(0))
+        assertEquals(remote, coordinator.remoteReady(0)?.file)
     }
 
     @Test
@@ -84,7 +86,7 @@ class HybridSynthesisCoordinatorTest {
         coordinator.start(listOf("a"))
         coordinator.prefetch(0)
         assertNull(coordinator.remoteReady(0))
-        assertEquals(fallback, coordinator.fallbackFile(0))
+        assertEquals(fallback, coordinator.fallbackFile(0)?.file)
     }
 
     @Test
@@ -221,9 +223,9 @@ class HybridSynthesisCoordinatorTest {
         val probed = HybridSynthesisCoordinator(
             scope = this,
             policy = policy(),
-            remoteTimeoutMs = 1_000,
-            remoteParams = com.opensecurity.customtts.model.CustomTtsVoiceParams(),
-            fallbackSpeed = 1f,
+            remoteTimeoutMs = { 1_000 },
+            remoteParams = { com.opensecurity.customtts.model.CustomTtsVoiceParams() },
+            fallbackSpeed = { 1f },
             remoteSynth = { _, _ ->
                 remoteSynthCalls++
                 null
@@ -234,10 +236,45 @@ class HybridSynthesisCoordinatorTest {
         )
         probed.start(listOf("a", "b"))
         probed.prefetch(0)
-        assertEquals(cached, probed.remoteReady(0))
+        assertEquals(cached, probed.remoteReady(0)?.file)
         assertEquals(0, remoteSynthCalls)
         // 未命中缓存的下一段正常走合成
         probed.prefetch(1)
         assertEquals(1, remoteSynthCalls)
+    }
+
+    @Test
+    fun `速度变更后已调度段保持旧烘焙速度新段用新速度`() = runTest(UnconfinedTestDispatcher()) {
+        var speed = 0.8f
+        val oldFile = temp("old-speed")
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteParams = { CustomTtsVoiceParams(speed = speed) },
+            remoteSynth = { _, params -> if (params.speed == 0.8f) oldFile else temp("new-speed") },
+            fallbackSynth = { _, _ -> null },
+        )
+        coordinator.start(listOf("a", "b"))
+        coordinator.prefetch(0)
+        speed = 1.2f
+        coordinator.prefetch(1)
+        // 已调度段不被作废：旧速度文件仍可用（播放端按新目标/旧烘焙比值调速）
+        val first = coordinator.remoteReady(0)
+        assertEquals(oldFile, first?.file)
+        assertEquals(0.8f, first?.bakedSpeed)
+        // 新调度的段按新速度合成
+        assertEquals(1.2f, coordinator.remoteReady(1)?.bakedSpeed)
+    }
+
+    @Test
+    fun `兜底文件携带烘焙速度`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> null },
+            fallbackSpeed = { 0.7f },
+            fallbackSynth = { _, _ -> temp("fbSpeed") },
+        )
+        coordinator.start(listOf("a"))
+        coordinator.prefetch(0)
+        assertEquals(0.7f, coordinator.fallbackFile(0)?.bakedSpeed)
     }
 }

@@ -18,6 +18,16 @@ import kotlinx.coroutines.withTimeout
 import java.io.File
 
 /**
+ * 一段已合成的混合朗读音频：文件 + **合成时烘进音频的速度**。
+ * 保存新速度后，旧段音频不重新合成（来不及），播放端按 `目标速度/bakedSpeed`
+ * 比值调速立即生效；新请求按新速度合成，播放端自然回到 1.0。
+ */
+data class HybridSegmentAudio(
+    val file: File,
+    val bakedSpeed: Float,
+)
+
+/**
  * 混合朗读段级调度（段级赛跑）：
  * - 每段播放前判定远程音频是否就绪：就绪用远程，未就绪立即用兜底
  * - 远程/兜底均预取（返回驱动 + 前瞻窗口 2）
@@ -29,9 +39,14 @@ import java.io.File
 class HybridSynthesisCoordinator(
     private val scope: CoroutineScope,
     private val policy: HybridTtsPolicy,
-    private val remoteTimeoutMs: Long,
-    private val remoteParams: CustomTtsVoiceParams,
-    private val fallbackSpeed: Float,
+    /**
+     * 速度/超时在**每次调度新段时**现读：朗读中保存设置后，之后发起的合成请求
+     * 用新值。已调度/在途作业**不作废**——作废重合成必然赶不上本段决策点，
+     * 只会退兜底；旧段的即时变速由播放端按 [HybridSegmentAudio.bakedSpeed] 比值完成。
+     */
+    private val remoteTimeoutMs: () -> Long,
+    private val remoteParams: () -> CustomTtsVoiceParams,
+    private val fallbackSpeed: () -> Float,
     private val remoteSynth: suspend (String, CustomTtsVoiceParams) -> File?,
     private val fallbackSynth: suspend (String, Float) -> File?,
     private val fallbackTimeoutMs: Long = 15_000,
@@ -58,6 +73,8 @@ class HybridSynthesisCoordinator(
     private var texts: List<String> = emptyList()
     private val remoteJobs = HashMap<Int, Deferred<File?>>()
     private val fallbackJobs = HashMap<Int, Deferred<File?>>()
+    private val remoteBakedSpeeds = HashMap<Int, Float>()
+    private val fallbackBakedSpeeds = HashMap<Int, Float>()
 
     /** 远端健康状态（跨段共享；网络故障不是段级的，逐段重试只会堆叠超时）。 */
     private val remoteHealthLock = Any()
@@ -84,27 +101,29 @@ class HybridSynthesisCoordinator(
         schedule(index)
     }
 
-    /** 非阻塞读取：该段远端已就绪则返回文件，否则 null。 */
-    fun remoteReady(index: Int): File? {
+    /** 非阻塞读取：该段远端已就绪则返回音频（含烘焙速度），否则 null。 */
+    fun remoteReady(index: Int): HybridSegmentAudio? {
         if (index !in texts.indices) return null
         schedule(index)
         val job = remoteJobs[index] ?: return null
         if (!job.isCompleted) return null
-        return runCatching { job.getCompleted() }.getOrNull()
+        val file = runCatching { job.getCompleted() }.getOrNull() ?: return null
+        return HybridSegmentAudio(file, remoteBakedSpeeds[index] ?: 1f)
     }
 
     /** 等兜底文件（云/HTTP 兜底用；系统兜底走 TTS 直接 speak，不会调用）。 */
-    suspend fun fallbackFile(index: Int): File? {
+    suspend fun fallbackFile(index: Int): HybridSegmentAudio? {
         if (!fallbackEnabled) return null
         schedule(index)
         val job = fallbackJobs[index] ?: return null
-        return try {
+        val file = try {
             job.await()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
-        }
+        } ?: return null
+        return HybridSegmentAudio(file, fallbackBakedSpeeds[index] ?: 1f)
     }
 
     /** 段级决策（复用同一策略，保证首段兜底与切换 Toast 只有一套逻辑）。 */
@@ -119,6 +138,8 @@ class HybridSynthesisCoordinator(
         fallbackJobs.values.forEach { it.cancel() }
         remoteJobs.clear()
         fallbackJobs.clear()
+        remoteBakedSpeeds.clear()
+        fallbackBakedSpeeds.clear()
         texts = emptyList()
         policy.reset()
     }
@@ -168,32 +189,37 @@ class HybridSynthesisCoordinator(
         if (index !in texts.indices) return
         val segment = texts[index]
         if (index !in remoteJobs && !remoteCooldownActive()) {
+            val params = remoteParams()
+            val timeoutMs = remoteTimeoutMs()
             log(
-                "混合TTS: 预取段 $index remote（voice=${remoteParams.voiceId.ifEmpty { "<默认>" }}" +
-                    ", timeout=${remoteTimeoutMs}ms, textLen=${segment.length}）"
+                "混合TTS: 预取段 $index remote（voice=${params.voiceId.ifEmpty { "<默认>" }}" +
+                    ", speed=${params.speed}, timeout=${timeoutMs}ms, textLen=${segment.length}）"
             )
+            remoteBakedSpeeds[index] = params.speed
             remoteJobs[index] = scope.async(ioDispatcher) {
                 val cached = remoteCacheProbe
-                    ?.let { probe -> runCatching { probe(segment, remoteParams) }.getOrNull() }
+                    ?.let { probe -> runCatching { probe(segment, params) }.getOrNull() }
                 if (cached != null) {
                     onRemoteSuccess()
                     log("混合TTS: 段 $index 远程缓存命中（闸门外） ${cached.name}")
                     cached
                 } else {
                     remoteGate.withPermit {
-                        synthesizeRemote(index, segment)
+                        synthesizeRemote(index, segment, params, timeoutMs)
                     }
                 }
             }
         }
         if (fallbackEnabled && index !in fallbackJobs) {
+            val speed = fallbackSpeed()
             log(
-                "混合TTS: 预取段 $index fallback（speed=$fallbackSpeed" +
+                "混合TTS: 预取段 $index fallback（speed=$speed" +
                     ", textLen=${segment.length}）"
             )
+            fallbackBakedSpeeds[index] = speed
             fallbackJobs[index] = scope.async(ioDispatcher) {
                 try {
-                    withTimeout(fallbackTimeoutMs) { fallbackSynth(segment, fallbackSpeed) }
+                    withTimeout(fallbackTimeoutMs) { fallbackSynth(segment, speed) }
                 } catch (e: TimeoutCancellationException) {
                     log("混合TTS: 段 $index 兜底超时（${fallbackTimeoutMs}ms）")
                     null
@@ -207,11 +233,16 @@ class HybridSynthesisCoordinator(
         }
     }
 
-    private suspend fun synthesizeRemote(index: Int, segment: String): File? {
+    private suspend fun synthesizeRemote(
+        index: Int,
+        segment: String,
+        params: CustomTtsVoiceParams,
+        timeoutMs: Long,
+    ): File? {
         val startedAt = System.currentTimeMillis()
-        val effectiveTimeoutMs = ReadAloudRemoteTimeout.effectiveMs(remoteTimeoutMs, segment.length)
+        val effectiveTimeoutMs = ReadAloudRemoteTimeout.effectiveMs(timeoutMs, segment.length)
         val result = try {
-            withTimeout(effectiveTimeoutMs) { remoteSynth(segment, remoteParams) }
+            withTimeout(effectiveTimeoutMs) { remoteSynth(segment, params) }
         } catch (e: TimeoutCancellationException) {
             val elapsed = System.currentTimeMillis() - startedAt
             log("混合TTS: 段 $index 远程超时（${elapsed}ms/限制${effectiveTimeoutMs}ms）")

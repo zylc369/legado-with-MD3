@@ -23,10 +23,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
@@ -182,5 +184,71 @@ class CustomTtsViewModelTest {
         )
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertTrue(effects.any { it is CustomTtsEffect.ShowToast })
+    }
+
+    @Test
+    fun `仅改速度时保存立即落盘且不重启网关`() {
+        val store = com.opensecurity.remotelink.gateway.ConfigStore(app)
+        val psk = android.util.Base64.encodeToString(ByteArray(32), android.util.Base64.NO_WRAP)
+        store.relayHost = "74.120.173.111"
+        store.relayPort = 41000
+        store.pskBase64 = psk
+        store.nodeId = "macmini"
+        store.localPort = 18888
+        // 网关未启用：连接参数不变且无重试需求 → 必不重启
+        //（“网关运行中”的组合由 requiresGatewayRestart 纯函数用例覆盖）
+        store.enabled = false
+        val vm = createViewModel()
+        val restarts = AtomicInteger(0)
+        vm.restartGateway = { restarts.incrementAndGet() }
+
+        vm.onIntent(CustomTtsIntent.SetCustomSpeed(1.2f))
+        vm.onIntent(CustomTtsIntent.SetFallbackSpeed(0.6f))
+        vm.onIntent(CustomTtsIntent.Save)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        // 连接参数未变 → 不重启网关（朗读中的在途远端请求不受打扰）
+        assertEquals(0, restarts.get())
+        // 设置已同步落盘：朗读中的下一段立即读到新速度
+        assertEquals(1.2f, settings.currentSettings.hybrid.customSpeed)
+        assertEquals(0.6f, settings.currentSettings.hybrid.fallbackSpeed)
+    }
+
+    @Test
+    fun `网关重启条件`() {
+        // 连接参数变化 → 必重启
+        assertTrue(requiresGatewayRestart(changed = true, enabled = false, runningPort = 0))
+        // 未启用且无变化 → 不重启
+        assertFalse(requiresGatewayRestart(changed = false, enabled = false, runningPort = 0))
+        // 已启用且正常运行（朗读中改速度的场景）→ 不重启
+        assertFalse(requiresGatewayRestart(changed = false, enabled = true, runningPort = 18888))
+        // 已启用但没跑起来（启动失败后重新保存=重试）→ 重启
+        assertTrue(requiresGatewayRestart(changed = false, enabled = true, runningPort = 0))
+    }
+
+    @Test
+    fun `改中继地址时保存需要重启网关`() {
+        val store = com.opensecurity.remotelink.gateway.ConfigStore(app)
+        val psk = android.util.Base64.encodeToString(ByteArray(32), android.util.Base64.NO_WRAP)
+        store.relayHost = "74.120.173.111"
+        store.relayPort = 41000
+        store.pskBase64 = psk
+        store.nodeId = "macmini"
+        store.localPort = 18888
+        store.enabled = true
+        val vm = createViewModel()
+        val restarts = AtomicInteger(0)
+        vm.restartGateway = { restarts.incrementAndGet() }
+
+        vm.onIntent(CustomTtsIntent.SetRelayHost("10.0.0.8"))
+        vm.onIntent(CustomTtsIntent.Save)
+
+        // withContext(IO) 异步完成后回主线程，等待其落地
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline && restarts.get() == 0) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(20)
+        }
+        assertEquals(1, restarts.get())
     }
 }

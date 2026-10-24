@@ -123,4 +123,28 @@ class ReadAloudSpeedTest {
         assertEquals(3.0f, ReadAloudSpeed.quantize(99f), 0.0001f)
         assertEquals(1.0f, ReadAloudSpeed.quantize(Float.NaN), 0.0001f)
     }
+
+    @Test
+    fun `混合比值新段同速为恒等一`() {
+        // 保存速度后新合成的段 baked == target：必须精确 1.0（不引入量化漂移）
+        assertEquals(1f, ReadAloudSpeed.hybridRatio(target = 1.2f, baked = 1.2f))
+        assertEquals(1f, ReadAloudSpeed.hybridRatio(target = 0.7f, baked = 0.7f))
+    }
+
+    @Test
+    fun `混合比值旧段按目标除以烘焙`() {
+        // 旧段烘 0.8x，保存新目标 1.2x → 播放 1.5x → 感知 1.2x
+        assertEquals(1.5f, ReadAloudSpeed.hybridRatio(target = 1.2f, baked = 0.8f))
+        assertEquals(0.5f, ReadAloudSpeed.hybridRatio(target = 0.6f, baked = 1.2f))
+    }
+
+    @Test
+    fun `混合比值夹紧与非法输入兜底`() {
+        // 极端比值夹到 0.1..3
+        assertEquals(3f, ReadAloudSpeed.hybridRatio(target = 3f, baked = 0.1f))
+        assertEquals(0.1f, ReadAloudSpeed.hybridRatio(target = 0.1f, baked = 3f))
+        // 烘焙速度过小按 0.1 兜底，非法目标回 1
+        assertEquals(1f, ReadAloudSpeed.hybridRatio(target = 0.1f, baked = 0.05f))
+        assertEquals(1f, ReadAloudSpeed.hybridRatio(target = Float.NaN, baked = 1f))
+    }
 }

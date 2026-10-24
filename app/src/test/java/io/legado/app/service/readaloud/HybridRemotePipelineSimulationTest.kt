@@ -45,9 +45,9 @@ class HybridRemotePipelineSimulationTest {
     ) = HybridSynthesisCoordinator(
         scope = this,
         policy = HybridTtsPolicy(HybridTtsConfig(firstSegmentFallback = true)),
-        remoteTimeoutMs = 10_000,
-        remoteParams = CustomTtsVoiceParams(),
-        fallbackSpeed = 0.7f,
+        remoteTimeoutMs = { 10_000 },
+        remoteParams = { CustomTtsVoiceParams() },
+        fallbackSpeed = { 0.7f },
         remoteSynth = { text, params -> fakeGateway.request(text, params, latencyMs) },
         fallbackSynth = { _, _ -> null },
         fallbackEnabled = false,

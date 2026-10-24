@@ -49,6 +49,9 @@ class CustomTtsViewModel(
 
     private val configStore = ConfigStore(appCtx)
 
+    /** 网关重启（等待在途 P2P 请求，最长 95s）。测试可替换以观察重启次数。 */
+    internal var restartGateway: () -> Unit = { RemoteLinkManager.restart(appCtx) }
+
     private val _uiState = MutableStateFlow(CustomTtsUiState())
     val uiState = _uiState.asStateFlow()
 
@@ -347,12 +350,18 @@ class CustomTtsViewModel(
             return emit(CustomTtsEffect.ShowToast("首段字数需在 5..200"))
         }
 
-        configStore.relayHost = s.relayHost.trim()
-        configStore.relayPort = relayPort
-        configStore.pskBase64 = pskTrimmed
-        configStore.nodeId = s.nodeId.trim().ifEmpty { "macmini" }
-        configStore.localPort = localPort
-        configStore.enabled = s.gatewayEnabled
+        val connection = GatewayConnection(
+            relayHost = s.relayHost.trim(),
+            relayPort = relayPort,
+            pskBase64 = pskTrimmed,
+            nodeId = s.nodeId.trim().ifEmpty { "macmini" },
+            localPort = localPort,
+            enabled = s.gatewayEnabled,
+        )
+        // 只有连接参数真的变了才重启网关：重启会中断在途远端请求（等待最长 95s），
+        // 朗读中改速度不应有任何网络副作用。
+        val connectionChanged = connection != GatewayConnection.from(configStore)
+        connection.applyTo(configStore)
 
         val settings = CustomTtsSettings(
             defaultVoiceId = s.defaultVoiceId,
@@ -371,8 +380,8 @@ class CustomTtsViewModel(
         )
         viewModelScope.launch {
             update { copy(saving = true) }
-            // 网关重启会等待在途 P2P 请求（最长 95s）——必须离开主线程
-            withContext(Dispatchers.IO) { RemoteLinkManager.restart(appCtx) }
+            // 设置先落盘：朗读中改速度后，当前段（播放端比值调速）与后续合成请求
+            // 立即读到新值，不被网关重启阻塞。
             val saveResult = runCatching { settingsGateway.update { settings } }
             if (saveResult.isFailure) {
                 update { copy(saving = false) }
@@ -382,6 +391,12 @@ class CustomTtsViewModel(
                     )
                 )
                 return@launch
+            }
+            // 连接参数变化，或"已启用但网关没跑起来"（启动失败后重新保存=重试）才重启；
+            // 网关正常运行的保存（如朗读中改速度）不打扰在途请求。
+            // 网关重启会等待在途 P2P 请求（最长 95s）——必须离开主线程。
+            if (requiresGatewayRestart(connectionChanged, connection.enabled, RemoteLinkManager.currentPort)) {
+                withContext(Dispatchers.IO) { restartGateway() }
             }
             val runningPort = RemoteLinkManager.currentPort
             if (runningPort > 0) {
@@ -463,3 +478,37 @@ class CustomTtsViewModel(
         private const val PREVIEW_TEXT = "这是一段试听文本，用于确认音色与参数效果。"
     }
 }
+
+/** 网关连接参数（决定是否需要重启网关的字段集合）。 */
+internal data class GatewayConnection(
+    val relayHost: String,
+    val relayPort: Int,
+    val pskBase64: String,
+    val nodeId: String,
+    val localPort: Int,
+    val enabled: Boolean,
+) {
+    fun applyTo(store: ConfigStore) {
+        store.relayHost = relayHost
+        store.relayPort = relayPort
+        store.pskBase64 = pskBase64
+        store.nodeId = nodeId
+        store.localPort = localPort
+        store.enabled = enabled
+    }
+
+    companion object {
+        fun from(store: ConfigStore) = GatewayConnection(
+            relayHost = store.relayHost,
+            relayPort = store.relayPort,
+            pskBase64 = store.pskBase64,
+            nodeId = store.nodeId,
+            localPort = store.localPort,
+            enabled = store.enabled,
+        )
+    }
+}
+
+/** 保存后是否需要（重）启动网关：连接参数变了，或已启用但当前没在运行（重试路径）。 */
+internal fun requiresGatewayRestart(changed: Boolean, enabled: Boolean, runningPort: Int): Boolean =
+    changed || (enabled && runningPort <= 0)

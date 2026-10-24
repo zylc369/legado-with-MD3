@@ -14,6 +14,12 @@ interface PlaybackEngine {
     /** 系统 TTS 直接朗读一个单元（不落文件）。 */
     suspend fun playSystemUtterance(unit: PlaybackUnit)
 
-    /** 播放一段本地音频文件，直到结束。 */
-    suspend fun playAudioFile(file: File)
+    /**
+     * 播放一段已合成音频（直到 STATE_ENDED）。
+     *
+     * [bakedSpeed] = 合成时烘进音频的速度；[targetSpeed] = 当前目标速度（现读）。
+     * 播放端按 `target/baked` 比值调速：保存新速度立即生效，不等重新合成；
+     * 新合成的段 baked == target，比值自然回到 1.0。
+     */
+    suspend fun playAudioFile(file: File, bakedSpeed: Float, targetSpeed: () -> Float)
 }
