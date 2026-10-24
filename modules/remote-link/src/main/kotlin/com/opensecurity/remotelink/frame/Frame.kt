@@ -11,7 +11,12 @@ import java.nio.ByteOrder
  * UDP 帧: [8B little-endian 计数器][payload（密文）]
  */
 object FrameCodec {
-    const val TCP_FRAME_MAX = 1 shl 20
+    /**
+     * TCP 单帧防御上限。必须与 protocol.md §9 / Python 端（remote_crypto.TCP_FRAME_MAX）
+     * 保持一致：8 MiB（TTS 音频/OCR 图片量级）。曾错写成 1 MiB——99 字 WAV（约 1.02 MiB）
+     * 是服务端合法载荷，被 App 读取器拒收，表现为“长文本永远用不了远端”。
+     */
+    const val TCP_FRAME_MAX = 8 shl 20
 
     /** TCP 帧封装。 */
     fun packTcp(payload: ByteArray): ByteArray {

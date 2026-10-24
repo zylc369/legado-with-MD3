@@ -105,19 +105,19 @@ class LocalTtsGatewayTest {
     }
 
     @Test
-    fun `请求级超时为调用方 HTTP 超时预留 2 秒余量且不进入服务端请求体`() {
+    fun `请求级超时只留 200ms 余量且不进入服务端请求体`() {
         client.response = Triple(200, "audio/wav", byteArrayOf(1))
         val (code, _, _) = get("/tts?text=abc&timeout_ms=10000")
         assertEquals(200, code)
-        assertEquals(8_000, client.lastTimeoutMs)
+        assertEquals(9_800, client.lastTimeoutMs)
         assertTrue(client.lastBody?.containsKey("timeout_ms") != true)
     }
 
     @Test
     fun `小请求级超时不倒扣余量`() {
         client.response = Triple(200, "audio/wav", byteArrayOf(1))
-        get("/tts?text=abc&timeout_ms=2000")
-        assertEquals(2_000, client.lastTimeoutMs)
+        get("/tts?text=abc&timeout_ms=1000")
+        assertEquals(1_000, client.lastTimeoutMs)
     }
 
     @Test

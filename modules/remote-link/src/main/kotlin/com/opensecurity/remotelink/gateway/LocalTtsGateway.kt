@@ -33,10 +33,11 @@ class LocalTtsGateway(port: Int, private val client: TtsClient) : NanoHTTPD("127
     private fun handleTts(session: IHTTPSession): Response {
         val params = GatewayParams.parse(session.parameters)
             .getOrElse { return badRequest(it.message ?: "参数非法") }
-        // 调用方给了请求级超时（混合朗读）时，网关必须提前返回：
-        // 否则 App 的 HTTP 超时先到，真实错误（远端超时/节点不可达）永远看不到。
+        // 调用方给了请求级超时（混合朗读）时，网关留极小余量先返回（真实错误
+        // 在超时前本就会到达）。余量不能大：曾用 2s——服务端在 [T-2s, T] 内完成的
+        // 请求（实测 13.7s 完成 vs 12.9s 被杀）会被网关误杀，还连锁触发熔断。
         val remoteTimeoutMs = params.timeoutMs
-            ?.let { if (it > 3_000) it - 2_000 else it }
+            ?.let { if (it > 1_200) it - 200 else it }
             ?: TtsClient.DEFAULT_API_TIMEOUT_MS
         val (status, mime, body) = client.request(
             "POST", "/api/tts", GatewayParams.toMap(params),

@@ -8,6 +8,7 @@ import com.opensecurity.customtts.model.HybridTtsSwitch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -186,5 +187,57 @@ class HybridSynthesisCoordinatorTest {
         now += 30_000
         coordinator.prefetch(2)
         assertEquals(3, remoteCalls)
+    }
+
+    @Test
+    fun `远端合成串行执行不并发排队`() = runTest(UnconfinedTestDispatcher()) {
+        var inFlight = 0
+        var maxInFlight = 0
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ ->
+                inFlight++
+                maxInFlight = maxOf(maxInFlight, inFlight)
+                delay(100)
+                inFlight--
+                null
+            },
+            fallbackSynth = { _, _ -> null },
+        )
+        coordinator.start(listOf("a", "b", "c"))
+        coordinator.prefetch(0)
+        coordinator.prefetch(1)
+        coordinator.prefetch(2)
+        advanceUntilIdle()
+        // 网关 P2P 请求本身单锁串行：并发预取只会排队并吃掉超时预算
+        assertEquals(1, maxInFlight)
+    }
+
+    @Test
+    fun `缓存命中走闸门外快路径不发起合成`() = runTest(UnconfinedTestDispatcher()) {
+        val cached = temp("cached")
+        var remoteSynthCalls = 0
+        // 直接构造带 probe 的协调器（helper 不透传 probe）
+        val probed = HybridSynthesisCoordinator(
+            scope = this,
+            policy = policy(),
+            remoteTimeoutMs = 1_000,
+            remoteParams = com.opensecurity.customtts.model.CustomTtsVoiceParams(),
+            fallbackSpeed = 1f,
+            remoteSynth = { _, _ ->
+                remoteSynthCalls++
+                null
+            },
+            fallbackSynth = { _, _ -> null },
+            remoteCacheProbe = { text, _ -> if (text == "a") cached else null },
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
+        probed.start(listOf("a", "b"))
+        probed.prefetch(0)
+        assertEquals(cached, probed.remoteReady(0))
+        assertEquals(0, remoteSynthCalls)
+        // 未命中缓存的下一段正常走合成
+        probed.prefetch(1)
+        assertEquals(1, remoteSynthCalls)
     }
 }

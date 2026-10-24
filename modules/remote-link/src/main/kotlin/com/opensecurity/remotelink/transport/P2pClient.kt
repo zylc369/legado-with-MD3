@@ -19,7 +19,10 @@ import org.json.JSONObject
  * P2P 客户端（wire protocol §4/§6/§7 客户端侧——Legado 内使用）。
  *
  * 路径状态机: 无会话 → 打洞直连（punchTimeout）→ 失败落中继 → 全失败抛异常。
- * 线程模型: 同步阻塞 socket（调用方在朗读服务的 IO 线程）; 会话复用直到失效。
+ * 线程模型: 调用方任意线程同步阻塞；**多路复用**——每会话一个读取线程按 id 分发
+ * 响应（服务端网关同样按 id 并发处理），并发由 [maxInFlight] 限流、超出排队
+ * （线程池语义）。旧实现把“发送+等响应”整体锁死成全局串行，是分发器缺失的
+ * 代偿，不是协议或服务端的要求。
  */
 class P2pClient(
     private val relayHost: String,
@@ -33,6 +36,8 @@ class P2pClient(
     private val log: (String) -> Unit = {},
     /** 单次建链总预算；超时即失败，避免中继 RTT 高时无限堆积。 */
     private val establishBudgetMs: Int = 30_000,
+    /** 在途请求上限（超出排队——线程池语义）；服务端按 id 多路复用。 */
+    private val maxInFlight: Int = 4,
 ) : TtsClient {
     class P2pException(message: String, cause: Throwable? = null)
         : Exception(message, cause)
@@ -43,84 +48,150 @@ class P2pClient(
     }
 
     @Volatile private var session: Session? = null
-    private var nextMsgId = 1
+    private val nextMsgId = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var closed = false
-    private val lock = Object()
+    private val sessionLock = Any()
+    private val inflight = java.util.concurrent.Semaphore(maxInFlight.coerceAtLeast(1))
+    private val waiters = java.util.concurrent.ConcurrentHashMap<
+            Int, java.util.concurrent.CompletableFuture<Map<String, Any?>>>()
+    @Volatile private var readerThread: Thread? = null
 
     val isClosed: Boolean get() = closed
 
     /**
      * 关闭会话并标记客户端不可再用（幂等——防 socket 泄漏）。
      *
-     * 不获取请求锁：request 的整个网络往返持锁（最长 95s），若 close 等锁，
-     * 主线程上的配置保存会卡死。这里直接关闭 socket 让在途请求抛错退出。
+     * 直接关闭 socket + 叫醒所有等待者，在途 request 立即抛错退出，
+     * 不存在“等锁”问题（多路复用后没有覆盖整个网络往返的全局锁）。
      */
     override fun close() {
         closed = true
-        val current = session
-        session = null
-        runCatching { current?.close() }
+        dropSession()
+        failAllWaiters(P2pException("客户端已关闭"))
     }
 
     /** HTTP 语义 API 调用（api.req/api.resp——status/mime/body）。
      *  [body] 结构化 JSON body（msgpack map——节点侧还原为 dict 转发 HTTP）；
      *  [timeoutMs] 请求级超时（混合调度用 10s 快速降级；默认 95s 与服务端对齐）。 */
     override fun request(method: String, path: String, body: Map<String, Any?>?,
-                token: String, timeoutMs: Int): Triple<Int, String, Any?> = synchronized(lock) {
+                token: String, timeoutMs: Int): Triple<Int, String, Any?> {
         if (closed) throw P2pException("客户端已关闭")
-        val msgId = nextMsgId++
-        val req = HashMap<String, Any?>()
-        req["t"] = "api.req"; req["id"] = msgId
-        req["method"] = method; req["path"] = path
-        req["body"] = body
-        if (token.isNotEmpty()) req["token"] = token
-        val requestStarted = System.currentTimeMillis()
-        val session = try {
-            ensureSession()
-        } catch (e: Exception) {
-            log("建链失败（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
-            throw e
+        inflight.acquire()
+        try {
+            val msgId = nextMsgId.incrementAndGet()
+            val req = HashMap<String, Any?>()
+            req["t"] = "api.req"; req["id"] = msgId
+            req["method"] = method; req["path"] = path
+            req["body"] = body
+            if (token.isNotEmpty()) req["token"] = token
+            val requestStarted = System.currentTimeMillis()
+            val future = java.util.concurrent.CompletableFuture<Map<String, Any?>>()
+            waiters[msgId] = future
+            val session = try {
+                ensureSession()
+            } catch (e: Exception) {
+                waiters.remove(msgId)
+                log("建链失败（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
+                throw e
+            }
+            try {
+                session.send(req)
+            } catch (e: Exception) {
+                waiters.remove(msgId)
+                dropSession()
+                log("请求失败 $method $path（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
+                throw P2pException("请求失败: ${e.message}", e)
+            }
+            val resp = try {
+                future.get(timeoutMs.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: java.util.concurrent.TimeoutException) {
+                waiters.remove(msgId) // 迟到响应由读取线程丢弃并记日志
+                // 响应超时只说明“这一段合成慢”，会话本身可能健康：丢弃它会让后续每个
+                // 请求都重新付 2~3s 建链成本，并放大成为连环超时。保留会话，等下一段复用。
+                log("请求超时 $method $path（${System.currentTimeMillis() - requestStarted}ms，保留会话）")
+                throw P2pException("响应超时（id=$msgId）")
+            }
+            val status = (resp["status"] as? Number)?.toInt() ?: 0
+            log(
+                "请求完成 $method $path status=$status（${System.currentTimeMillis() - requestStarted}ms）"
+            )
+            return Triple(status, resp["mime"] as? String ?: "application/octet-stream",
+                resp["body"])
+        } finally {
+            inflight.release()
         }
-        val resp = try {
-            session.send(req)
-            awaitResponse(session, msgId, timeoutMs)
-        } catch (e: Exception) {
-            dropSession()
-            log("请求失败 $method $path（${System.currentTimeMillis() - requestStarted}ms）: ${e.message}")
-            throw P2pException("请求失败: ${e.message}", e)
-        }
-        val status = (resp["status"] as? Number)?.toInt() ?: 0
-        log(
-            "请求完成 $method $path status=$status（${System.currentTimeMillis() - requestStarted}ms）"
-        )
-        return Triple(status, resp["mime"] as? String ?: "application/octet-stream",
-            resp["body"])
     }
 
-    /** 快速健康探测。 */
-    override fun ping(): Boolean = synchronized(lock) {
+    /** 快速健康探测（同一多路复用路径；探测超时/异常视为会话可疑，丢弃重建）。 */
+    override fun ping(): Boolean {
         if (closed) return false
-        try {
+        inflight.acquire()
+        val msgId = nextMsgId.incrementAndGet()
+        val future = java.util.concurrent.CompletableFuture<Map<String, Any?>>()
+        waiters[msgId] = future
+        return try {
             val session = ensureSession()
-            val msgId = nextMsgId++
             session.send(mapOf("t" to "ping", "id" to msgId))
-            awaitResponse(session, msgId, timeoutMs = 5000)
-            true
-        } catch (_: Exception) {
+            future.get(5, java.util.concurrent.TimeUnit.SECONDS) != null
+        } catch (e: Exception) {
+            waiters.remove(msgId)
+            log("ping 失败: ${e.message ?: e.javaClass.simpleName}")
             dropSession(); false
+        } finally {
+            inflight.release()
+        }
+    }
+
+    /** 会话读取线程：按 id 把响应分发给等待者；会话故障时叫醒全部等待者并弃会话。 */
+    private fun startReader(s: Session) {
+        readerThread = Thread({
+            while (!closed && s.alive) {
+                try {
+                    val msg = s.recvNext(timeoutMs = 500) ?: continue
+                    val id = (msg["id"] as? Number)?.toInt()
+                    if (id == null) continue
+                    val future = waiters.remove(id)
+                    if (future != null) {
+                        future.complete(msg)
+                    } else {
+                        log("迟到/无主响应丢弃 id=$id")
+                    }
+                } catch (e: Exception) {
+                    if (closed) break
+                    log("会话读取失败: ${e.message ?: e.javaClass.simpleName}")
+                    dropSession()
+                    failAllWaiters(e)
+                    break
+                }
+            }
+        }, "P2pSessionReader").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun failAllWaiters(cause: Exception) {
+        val ids = ArrayList(waiters.keys)
+        for (id in ids) {
+            waiters.remove(id)?.completeExceptionally(
+                P2pException("会话已断开（id=$id）", cause)
+            )
         }
     }
 
     // ── 会话建立（§7 状态机）──────────────────────────
 
-    private fun ensureSession(): Session {
-        session?.let { if (it.alive) return it else session = null }
+    private fun ensureSession(): Session = synchronized(sessionLock) {
+        session?.let {
+            if (it.alive) return it else dropSessionLocked()
+        }
         val startedAt = System.currentTimeMillis()
         fun budgetLeft(): Long = establishBudgetMs - (System.currentTimeMillis() - startedAt)
         // 测试注入: 跳过打洞/中继，直接创建会话
         sessionFactory?.let { factory ->
             val s = factory.create()
             session = s
+            startReader(s)
             return s
         }
         // ① 打洞直连（本机与节点常不同子网，失败属常态；耗时计入预算）
@@ -129,6 +200,7 @@ class P2pClient(
             try {
                 val s = punchAndConnect()
                 session = s
+                startReader(s)
                 log("打洞直连成功（${System.currentTimeMillis() - punchStarted}ms）")
                 return s
             } catch (e: Exception) {
@@ -145,12 +217,16 @@ class P2pClient(
         val relayStarted = System.currentTimeMillis()
         val s = relayConnect()
         session = s
+        startReader(s)
         log("中继建链完成（${System.currentTimeMillis() - relayStarted}ms）")
         return s
     }
 
-    private fun dropSession() {
-        session?.close(); session = null
+    private fun dropSession() = synchronized(sessionLock) { dropSessionLocked() }
+
+    private fun dropSessionLocked() {
+        session?.close()
+        session = null
     }
 
     /** lookup → punch 互射 → Noise 握手（§6; UDP 洞口先建——lookup 携带其本地地址，
@@ -252,17 +328,6 @@ class P2pClient(
         fun close()
     }
 
-    /** 收响应直到 id 匹配（忽略乱序/无关消息）。 */
-    private fun awaitResponse(session: Session, msgId: Int,
-                              timeoutMs: Int = TtsClient.DEFAULT_API_TIMEOUT_MS): Map<String, Any?> {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            val msg = session.recvNext(timeoutMs = 500) ?: continue
-            if ((msg["id"] as? Number)?.toInt() == msgId) return msg
-        }
-        throw P2pException("响应超时（id=$msgId）")
-    }
-
     inner class UdpSession(private val udp: DatagramSocket,
                            private val peer: InetSocketAddress,
                            private val crypto: SessionCrypto) : Session {
@@ -314,9 +379,16 @@ class P2pClient(
             conn.writeRaw(FrameCodec.packTcp(crypto.encryptSeq(Msg.encode(msg))))
         }
 
+        private val pending = ArrayDeque<ByteArray>()
+
         override fun recvNext(timeoutMs: Int): Map<String, Any?>? {
+            // 一次 TCP 读可能解出多帧：剩余帧必须留在队列里逐帧返回，
+            // firstOrNull 丢帧会吞掉并发/迟到响应。
+            pending.removeFirstOrNull()?.let { return Msg.decode(crypto.decryptSeq(it)) }
             val frames = conn.readFrames(timeoutMs)
-            return frames.firstOrNull()?.let { Msg.decode(crypto.decryptSeq(it)) }
+            if (frames.isEmpty()) return null
+            for (i in 1 until frames.size) pending.addLast(frames[i])
+            return Msg.decode(crypto.decryptSeq(frames[0]))
         }
 
         override fun close() = conn.close()

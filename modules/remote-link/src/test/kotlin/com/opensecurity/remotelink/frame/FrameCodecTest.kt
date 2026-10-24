@@ -28,6 +28,17 @@ class FrameCodecTest {
     }
 
     @Test
+    fun `长文本音频量级帧可正常解出`() {
+        // 回归：99 字 WAV 约 1.02 MiB，曾被 1 MiB 上限拒收（对端按协议 8 MiB 合法发送）
+        val wavLike = ByteArray((1.02 * 1024 * 1024).toInt()) { (it % 251).toByte() }
+        val packed = FrameCodec.packTcp(wavLike)
+        val reader = TcpFrameReader()
+        val frames = reader.feed(packed)
+        org.junit.Assert.assertEquals(1, frames.size)
+        org.junit.Assert.assertArrayEquals(wavLike, frames[0])
+    }
+
+    @Test
     fun `TCP 最大帧可打包与超限拒绝`() {
         FrameCodec.packTcp(ByteArray(FrameCodec.TCP_FRAME_MAX))
         assertThrows(IllegalArgumentException::class.java) {

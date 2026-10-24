@@ -71,6 +71,7 @@ import io.legado.app.help.readaloud.playback.ReadAloudUnitSource
 import io.legado.app.help.readaloud.playback.PlaybackEngine
 import io.legado.app.help.readaloud.playback.SystemTtsFileSynthesizer
 import io.legado.app.help.readaloud.playback.ReadAloudAudioCacheKey
+import io.legado.app.help.readaloud.playback.ReadAloudRemoteTimeout
 import io.legado.app.help.readaloud.playback.ReadAloudSpeed
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
@@ -511,6 +512,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                         synthesizeRemoteSegment(text, params, settings.hybrid.remoteTimeoutMs)
                     },
                     fallbackSynth = { text, speed -> synthesizeFallbackSegment(text, speed) },
+                    remoteCacheProbe = ::probeRemoteCache,
                     log = { AppLog.putDebug(it) },
                     logError = { message, throwable -> AppLog.put(message, throwable) },
                     fallbackEnabled =
@@ -588,7 +590,8 @@ class HttpReadAloudService : BaseReadAloudService(),
             moveToUnit(index)
             upMediaMetadata(showContent = true)
 
-            // 预取后 2 段：远端有本段完整播放时间来完成（标题段不预取远端）。
+            // 预取后 2 段：远端有本段完整播放时间来完成。合成在协调器内串行，
+            // 每段超时从真正开始合成时计，排队不会吃掉预算。
             coordinator.prefetch(index + 1)
             coordinator.prefetch(index + 2)
 
@@ -747,6 +750,17 @@ class HttpReadAloudService : BaseReadAloudService(),
         }
     }
 
+    /** 远端缓存探测（闸门外快路径）：命中即用，不占服务端合成闸门。 */
+    private fun probeRemoteCache(
+        text: String,
+        params: CustomTtsVoiceParams,
+    ): File? {
+        val httpTts = ReadAloud.httpTTS ?: return null
+        val sourceKey = ReadAloudAudioCacheKey.custom(params.voiceId, GSON.toJson(params))
+        val fileName = md5SpeakFileName(text, httpTts = httpTts, sourceKey = sourceKey)
+        return if (hasSpeakFile(fileName)) getSpeakFileAsMd5(fileName) else null
+    }
+
     /** 远程段合成（本地网关→P2P→服务端；缓存键含参数）。 */
     private suspend fun synthesizeRemoteSegment(
         text: String,
@@ -764,9 +778,12 @@ class HttpReadAloudService : BaseReadAloudService(),
             AppLog.putDebug("混合TTS: 远程缓存命中 ${text.length}字 -> $fileName")
             return getSpeakFileAsMd5(fileName)
         }
+        // 远端合成耗时随字数增长；协调器按同一公式放宽超时，网关再提前 2s 返回。
+        val effectiveTimeoutMs = ReadAloudRemoteTimeout.effectiveMs(requestTimeoutMs.toLong(), text.length)
+        AppLog.putDebug("混合TTS: 远程合成开始 textLen=${text.length} timeout=${effectiveTimeoutMs}ms")
         val stream = try {
             getSpeakStream(
-                httpTts, text, params, requestTimeoutMs = requestTimeoutMs)
+                httpTts, text, params, requestTimeoutMs = effectiveTimeoutMs.toInt())
         } catch (e: CancellationException) {
             // 章节切换/停止：不是合成失败，向上传播。
             throw e
