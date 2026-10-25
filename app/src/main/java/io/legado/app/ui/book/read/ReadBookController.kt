@@ -2427,6 +2427,7 @@ class ReadBookController(
             is ReadBookEffect.OpenSourceEdit,
             is ReadBookEffect.OpenChapterList,
             is ReadBookEffect.OpenBookInfo,
+            is ReadBookEffect.OpenTtsEnginesAndVoices,
             is ReadBookEffect.OpenSearch,
             is ReadBookEffect.ShowLogin,
             is ReadBookEffect.OpenWebView,

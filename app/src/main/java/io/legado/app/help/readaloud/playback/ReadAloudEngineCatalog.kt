@@ -15,18 +15,29 @@ data class ReadAloudEngineChoice(
 
 object ReadAloudEngineCatalog {
 
+    /**
+     * 三源合并为引擎目录（系统 → HTTP → 云）。
+     *
+     * @param excludeHttpId 排除某个 HTTP 引擎（如定制引擎不作为兜底候选）
+     * @param prefixedLabel label 是否带“系统:/HTTP:/云:”类型前缀；
+     *   快捷切换面板自带分组标题，用不带前缀的纯名称
+     */
     fun merge(
         system: List<TtsEngineDescriptor>,
         http: List<TtsEngineDescriptor>,
         cloud: List<CloudTtsEngine>,
         excludeHttpId: String? = null,
+        prefixedLabel: Boolean = true,
     ): List<ReadAloudEngineChoice> = buildList {
+        fun label(prefix: String, name: String) =
+            if (prefixedLabel) "$prefix: $name" else name
+
         system.forEach { engine ->
             add(
                 ReadAloudEngineChoice(
                     engineType = ReadAloudVoice.ENGINE_SYSTEM,
                     engineId = engine.sourceId,
-                    label = "系统: ${engine.displayName}",
+                    label = label("系统", engine.displayName),
                 )
             )
         }
@@ -37,7 +48,7 @@ object ReadAloudEngineCatalog {
                     ReadAloudEngineChoice(
                         engineType = ReadAloudVoice.ENGINE_HTTP,
                         engineId = engine.sourceId,
-                        label = "HTTP: ${engine.displayName}",
+                        label = label("HTTP", engine.displayName),
                     )
                 )
             }
@@ -48,7 +59,7 @@ object ReadAloudEngineCatalog {
                     ReadAloudEngineChoice(
                         engineType = ReadAloudVoice.ENGINE_CLOUD,
                         engineId = engine.id,
-                        label = "云: ${engine.name}",
+                        label = label("云", engine.name),
                     )
                 )
             }

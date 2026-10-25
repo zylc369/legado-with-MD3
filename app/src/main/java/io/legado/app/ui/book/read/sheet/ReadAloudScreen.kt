@@ -33,6 +33,7 @@ import io.legado.app.R
 import io.legado.app.domain.model.settings.ReadAloudTimerMode
 import io.legado.app.ui.book.read.ReadBookIntent
 import io.legado.app.ui.book.read.ReadBookUiState
+import io.legado.app.ui.book.readaloud.engines.ReadAloudEngineQuickSwitch
 import io.legado.app.ui.book.readaloud.player.formatReadAloudSpeedLabel
 import io.legado.app.ui.widget.components.button.series.MediumTonalButton
 import io.legado.app.ui.widget.components.settingItem.TinyClickableSettingItem
@@ -56,6 +57,8 @@ fun ReadAloudContent(
     onShowReadAloudConfig: () -> Unit,
     onShowTimerSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 「管理引擎」入口（跳「引擎与音色」页）。 */
+    onManageEngines: () -> Unit,
 ) {
     val ttsSpeechRate = state.readAloudTtsSpeechRate
     var speechRatePreview by remember(ttsSpeechRate) { mutableFloatStateOf(ttsSpeechRate.toFloat()) }
@@ -99,7 +102,16 @@ fun ReadAloudContent(
             )
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
+
+        // 快捷切换引擎：入口行常显当前引擎/音色，点开分组面板（本书/全局默认）
+        ReadAloudEngineQuickSwitch(
+            bookUrl = state.book?.bookUrl,
+            modifier = Modifier.fillMaxWidth(),
+            onManageEngines = onManageEngines,
+        )
+
+        Spacer(Modifier.height(4.dp))
 
         TinyClickableSettingItem(
             title = stringResource(R.string.set_timer),

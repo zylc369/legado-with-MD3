@@ -116,4 +116,6 @@ private class MutableVoiceGateway(
     ): BookVoiceBinding? = null
     override suspend fun upsertBinding(binding: BookVoiceBinding) = Unit
     override suspend fun deleteBinding(binding: BookVoiceBinding) = Unit
+    override suspend fun getBookTtsSelection(bookUrl: String): String? = null
+    override suspend fun setBookTtsSelection(bookUrl: String, value: String?) = Unit
 }

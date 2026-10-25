@@ -67,6 +67,7 @@ fun ReadAloudSettingsRouteScreen(
             }
         },
         onPlayerIntent = viewModel::onIntent,
+        bookUrl = bookUrl,
     )
 }
 
@@ -78,6 +79,7 @@ fun ReadAloudSettingsScreen(
     onBack: () -> Unit,
     onConfigIntent: (ReadAloudConfigIntent) -> Unit,
     onPlayerIntent: (ReadAloudPlayerIntent) -> Unit,
+    bookUrl: String? = null,
 ) {
     val scrollBehavior = GlassTopAppBarDefaults.defaultScrollBehavior()
     AppScaffold(
@@ -98,6 +100,7 @@ fun ReadAloudSettingsScreen(
             onIntent = onConfigIntent,
             onPlayerIntent = onPlayerIntent,
             asPage = true,
+            bookUrl = bookUrl,
             modifier = Modifier.padding(paddingValues),
         )
     }

@@ -22,4 +22,10 @@ interface ReadAloudVoiceGateway {
 
     suspend fun upsertBinding(binding: BookVoiceBinding)
     suspend fun deleteBinding(binding: BookVoiceBinding)
+
+    /** 本书的朗读引擎选择（ReadAloudEngineSelection JSON；null=未单独设置，继承全局）。 */
+    suspend fun getBookTtsSelection(bookUrl: String): String?
+
+    /** 写入本书的朗读引擎选择；null 清除（回落到全局默认）。 */
+    suspend fun setBookTtsSelection(bookUrl: String, value: String?)
 }

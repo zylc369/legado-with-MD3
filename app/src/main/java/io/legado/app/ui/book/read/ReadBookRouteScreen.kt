@@ -154,6 +154,7 @@ fun ReadBookRouteScreen(
     onEffectsReady: () -> Unit = {},
     onOpenSearch: (word: String?, bookUrl: String, autoFocus: Boolean) -> Unit = { _, _, _ -> },
     onOpenReadAloudSettings: () -> Unit = {},
+    onOpenTtsEnginesAndVoices: (bookUrl: String) -> Unit = {},
     onNavigateBack: () -> Boolean = { true },
 ) {
     // 归因定界：与末尾 compose.screen.end 成对。若首帧 `Compose:recompose` 里出现
@@ -450,6 +451,8 @@ fun ReadBookRouteScreen(
                                 onOpenSearch(effect.word, effect.bookUrl, effect.autoFocus)
                             }
                             ReadBookEffect.OpenReadAloudSettings -> onOpenReadAloudSettings()
+                            is ReadBookEffect.OpenTtsEnginesAndVoices ->
+                                onOpenTtsEnginesAndVoices(effect.bookUrl)
                             is ReadBookEffect.MenuSettingReplace -> {
                                 replaceLauncher.launch(
                                     ReplaceRuleActivity.startIntent(

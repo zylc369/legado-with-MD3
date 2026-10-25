@@ -842,6 +842,11 @@ fun MainActivity.mainEntryProvider(
                 onOpenReadAloudSettings = {
                     onNavigateToRoute(MainRouteReadAloudSettings(route.bookUrl))
                 },
+                onOpenTtsEnginesAndVoices = { bookUrl ->
+                    onNavigateToRoute(
+                        MainRouteCloudTtsEngines(bookUrl.takeIf(String::isNotBlank)),
+                    )
+                },
                 onNavigateBack = {
                     MainNavigator.navigateBack(
                         this@mainEntryProvider,

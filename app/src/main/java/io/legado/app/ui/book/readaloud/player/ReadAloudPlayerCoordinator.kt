@@ -316,23 +316,52 @@ class ReadAloudPlayerCoordinator(
      * 等服务真的回到 Idle 再重放，避免新旧管线叠音。
      */
     suspend fun setUseMultiSpeaker(value: Boolean) {
-        val shouldRestart = BaseReadAloudService.isRun
-        val resumePlaying = shouldRestart && !BaseReadAloudService.pause
+        val wasRunning = BaseReadAloudService.isRun
+        val resumePlaying = wasRunning && !BaseReadAloudService.pause
         val chapterPosition = sessionStore.state.value.playback.chapterPosition
         readAloudSettingsGateway.update { it.copy(useMultiSpeaker = value) }
-        if (shouldRestart && ReadBook.readerChapterInputWindow.current != null) {
-            ReadAloud.stop(application)
-            val stopped = withTimeoutOrNull(2_000) {
-                sessionStore.state.first { it.status == ReadAloudSessionStatus.Idle }
-            }
-            if (stopped == null) return
+        restartWithChapterPosition(wasRunning, resumePlaying, chapterPosition)
+    }
+
+    /**
+     * 朗读引擎切换后重启服务并回到当前位置。
+     *
+     * 系统 TTS 与 HTTP/云引擎由不同 Service 承载，无法原地热换；这里沿用
+     * 「多角色开关」的位置恢复语义：未在朗读或阅读器窗口不在时不重启。
+     */
+    suspend fun restartReadAloudAtCurrentPosition() {
+        val wasRunning = BaseReadAloudService.isRun
+        restartWithChapterPosition(
+            wasRunning = wasRunning,
+            resumePlaying = wasRunning && !BaseReadAloudService.pause,
+            chapterPosition = sessionStore.state.value.playback.chapterPosition,
+        )
+    }
+
+    private suspend fun restartWithChapterPosition(
+        wasRunning: Boolean,
+        resumePlaying: Boolean,
+        chapterPosition: Int,
+    ) {
+        if (!wasRunning) {
             ReadAloud.refreshReadAloudClass()
-            ReadAloud.play(
-                context = application,
-                play = resumePlaying,
-                chapterPosition = chapterPosition.coerceAtLeast(0),
-            )
+            return
         }
+        if (ReadBook.readerChapterInputWindow.current == null) {
+            ReadAloud.refreshReadAloudClass()
+            return
+        }
+        ReadAloud.stop(application)
+        val stopped = withTimeoutOrNull(2_000) {
+            sessionStore.state.first { it.status == ReadAloudSessionStatus.Idle }
+        }
+        if (stopped == null) return
+        ReadAloud.refreshReadAloudClass()
+        ReadAloud.play(
+            context = application,
+            play = resumePlaying,
+            chapterPosition = chapterPosition.coerceAtLeast(0),
+        )
     }
 
     /**

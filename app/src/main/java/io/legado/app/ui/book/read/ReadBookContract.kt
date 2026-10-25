@@ -560,6 +560,8 @@ sealed interface ReadBookIntent {
     data object DisableSource : ReadBookIntent
     data object OpenSourceEdit : ReadBookIntent
     data class OpenSourceEditByUrl(val sourceUrl: String) : ReadBookIntent
+    /** 打开「引擎与音色」管理页（快捷切换面板的「管理引擎」入口）。 */
+    data object OpenTtsEnginesAndVoices : ReadBookIntent
     data object OpenBookInfo : ReadBookIntent
     data object OpenBookInfoDirect : ReadBookIntent
     data object OpenChapterList : ReadBookIntent
@@ -880,6 +882,7 @@ sealed interface ReadBookEffect {
     data class ShowLogin(val sourceUrl: String) : ReadBookEffect
     data class OpenSourceEdit(val sourceUrl: String) : ReadBookEffect
     data class OpenBookInfo(val name: String, val author: String, val bookUrl: String) : ReadBookEffect
+    data class OpenTtsEnginesAndVoices(val bookUrl: String) : ReadBookEffect
     data class OpenChapterList(val bookUrl: String) : ReadBookEffect
     data class OpenWebView(
         val title: String,

@@ -766,6 +766,9 @@ private fun ReadBookMenuSurface(
                                     onIntent(ReadBookIntent.ShowReadAloudConfig)
                                 },
                                 onShowTimerSettings = { readAloudTimerSheetOpen = true },
+                                onManageEngines = {
+                                    onIntent(ReadBookIntent.OpenTtsEnginesAndVoices)
+                                },
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
                         }

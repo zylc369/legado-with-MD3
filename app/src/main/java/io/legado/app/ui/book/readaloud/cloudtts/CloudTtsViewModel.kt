@@ -912,9 +912,7 @@ class CloudTtsViewModel(
 
     private fun setBookContext(value: String?) = viewModelScope.launch {
         bookUrl = value
-        bookSelectionRaw = withContext(Dispatchers.IO) {
-            value?.let(appDb.bookDao::getBook)?.getTtsEngine()
-        }
+        bookSelectionRaw = value?.let { voiceGateway.getBookTtsSelection(it) }
         rebuildEngineItems()
     }
 
@@ -922,12 +920,7 @@ class CloudTtsViewModel(
     private suspend fun writeBookSelection(value: String?) {
         val url = bookUrl ?: return
         ReadBook.book?.takeIf { it.bookUrl == url }?.setTtsEngine(value)
-        withContext(Dispatchers.IO) {
-            appDb.bookDao.getBook(url)?.let { book ->
-                book.setTtsEngine(value)
-                appDb.bookDao.update(book)
-            }
-        }
+        voiceGateway.setBookTtsSelection(url, value)
         bookSelectionRaw = value
     }
 

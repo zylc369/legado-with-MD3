@@ -514,7 +514,7 @@ val appModule = module {
     single<BookContentProcessGateway> { BookContentProcessRepository(get()) }
     single<BookMarkingGateway> { BookMarkingRepository(get()) }
     single<BookKnowledgeGateway> { BookKnowledgeRepository(get()) }
-    single<ReadAloudVoiceGateway> { ReadAloudVoiceRepository(get()) }
+    single<ReadAloudVoiceGateway> { ReadAloudVoiceRepository(get(), get()) }
     singleOf(::CloudTtsCredentialCipher)
     single<CloudTtsEngineGateway> { CloudTtsEngineRepository(get(), get()) }
     single<ChapterSpeechGateway> { ChapterSpeechRepository(get()) }
@@ -739,6 +739,17 @@ val appModule = module {
      * 播放状态本身在 `ReadAloudSessionStore`/服务里，这里只是界面投影。
      */
     single { ReadAloudPlayerViewModel(get(), get(), get()) }
+    single<io.legado.app.ui.book.readaloud.engines.ReadAloudEngineRestarter> {
+        val coordinator = get<ReadAloudPlayerCoordinator>()
+        io.legado.app.ui.book.readaloud.engines.ReadAloudEngineRestarter {
+            coordinator.restartReadAloudAtCurrentPosition()
+        }
+    }
+    single {
+        io.legado.app.ui.book.readaloud.engines.ReadAloudEnginesViewModel(
+            get(), get(), get(), get(), get(),
+        )
+    }
     viewModel { (bookUrl: String, entryId: String?) ->
         BookKnowledgeDetailViewModel(
             bookUrl = bookUrl,

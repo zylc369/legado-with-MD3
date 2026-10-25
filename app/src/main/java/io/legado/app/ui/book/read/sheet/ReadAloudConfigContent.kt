@@ -24,6 +24,7 @@ import io.legado.app.domain.model.readaloud.ReadAloudContentSplitSetting
 import io.legado.app.domain.model.readaloud.ReadAloudSplitSymbol
 import io.legado.app.domain.model.settings.ReadAloudContentSplitMode
 import io.legado.app.feature.readaloud.overlay.ReadAloudOverlayPermissionRoute
+import io.legado.app.ui.book.readaloud.engines.ReadAloudEngineQuickSwitch
 import io.legado.app.ui.book.readaloud.player.ReadAloudConfigIntent
 import io.legado.app.ui.book.readaloud.player.ReadAloudConfigOption
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerConfigHostAction
@@ -53,6 +54,8 @@ fun ReadAloudConfigContent(
      * false（默认）表示宿主是卡片弹层，数值项继续打开选择器弹层。
      */
     asPage: Boolean = false,
+    /** 当前书上下文：快捷切换引擎的「本书」作用域需要。 */
+    bookUrl: String? = null,
 ) {
     val pagerState = rememberPagerState(pageCount = { 2 })
     val scope = rememberCoroutineScope()
@@ -210,6 +213,17 @@ fun ReadAloudConfigContent(
                         onClick = { onIntent(ReadAloudConfigIntent.ResetCapsulePosition) },
                     )
                 } else {
+                    ReadAloudEngineQuickSwitch(
+                        bookUrl = bookUrl,
+                        modifier = Modifier.fillMaxWidth(),
+                        onManageEngines = {
+                            onIntent(
+                                ReadAloudConfigIntent.Host(
+                                    ReadAloudPlayerConfigHostAction.OpenTtsEnginesAndVoices
+                                )
+                            )
+                        },
+                    )
                     TinyClickableSettingItem(
                         title = stringResource(R.string.read_aloud_engines_and_voices),
                         description = stringResource(R.string.read_aloud_engines_and_voices_summary),

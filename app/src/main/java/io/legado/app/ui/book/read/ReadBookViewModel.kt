@@ -1053,6 +1053,11 @@ class ReadBookViewModel(
                 ReadBookEffect.OpenBookInfo(it.name, it.author, it.bookUrl)
             }
             is ReadBookIntent.OpenBookInfoDirect -> openBookInfoDirect()
+            is ReadBookIntent.OpenTtsEnginesAndVoices -> {
+                ReadBook.book?.bookUrl?.let {
+                    _effects.tryEmit(ReadBookEffect.OpenTtsEnginesAndVoices(it))
+                }
+            }
 
             is ReadBookIntent.OpenChapterList -> openBookNavigation(ReaderBookSheetTab.Toc) {
                 ReadBookEffect.OpenChapterList(it.bookUrl)

@@ -149,6 +149,7 @@ fun ReadAloudPlayerMorphHost(
                 playerViewModel.applyReadAloudConfigIntent(intent, ::handleHostAction)
             },
             onPlayerIntent = playerViewModel::onIntent,
+            bookUrl = playerState.bookUrl,
         )
     }
 

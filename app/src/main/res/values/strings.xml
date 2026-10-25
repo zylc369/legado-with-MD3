@@ -3426,4 +3426,23 @@
     <string name="home_capsule_restore_navigation">Restore navigation</string>
     <string name="home_capsule_expand_controls">Show playback controls</string>
     <string name="home_capsule_chapter">Chapter %d</string>
+    <string name="read_aloud_engine_switch">Reading engine</string>
+    <string name="read_aloud_engine_switch_summary">Tap to switch engine and voice</string>
+    <string name="read_aloud_engine_switch_hint">Takes effect immediately, including while reading aloud</string>
+    <string name="read_aloud_engine_scope_book">This book</string>
+    <string name="read_aloud_engine_scope_global">Global default</string>
+    <string name="read_aloud_engine_scope_book_hint">Only this book; other books are unaffected</string>
+    <string name="read_aloud_engine_scope_global_hint">Applies to books without their own setting</string>
+    <string name="read_aloud_engine_group_system">System</string>
+    <string name="read_aloud_engine_group_http">HTTP sources</string>
+    <string name="read_aloud_engine_group_cloud">Cloud</string>
+    <string name="read_aloud_engine_tag_book">Book</string>
+    <string name="read_aloud_engine_tag_global">Global</string>
+    <string name="read_aloud_engine_default_voice">Engine default</string>
+    <string name="read_aloud_engine_manage">Manage</string>
+    <string name="read_aloud_engine_detail_system">on-device</string>
+    <string name="read_aloud_engine_detail_http">source synthesis</string>
+    <string name="read_aloud_engine_detail_cloud">cloud synthesis</string>
+    <string name="read_aloud_engine_load_failed">Engine catalog failed to load</string>
+    <string name="read_aloud_engine_load_failed_summary">Tap to retry</string>
 </resources>

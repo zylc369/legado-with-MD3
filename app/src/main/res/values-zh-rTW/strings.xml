@@ -2983,4 +2983,23 @@
     <string name="home_capsule_restore_navigation">恢復導覽列</string>
     <string name="home_capsule_expand_controls">展開播放控制</string>
     <string name="home_capsule_chapter">第 %d 章</string>
+    <string name="read_aloud_engine_switch">朗讀引擎</string>
+    <string name="read_aloud_engine_switch_summary">點選切換引擎與音色</string>
+    <string name="read_aloud_engine_switch_hint">點選立即生效，朗讀中自動切換</string>
+    <string name="read_aloud_engine_scope_book">本書</string>
+    <string name="read_aloud_engine_scope_global">全局默認</string>
+    <string name="read_aloud_engine_scope_book_hint">只改本書，不影響其他書</string>
+    <string name="read_aloud_engine_scope_global_hint">影響所有未單獨設置的書</string>
+    <string name="read_aloud_engine_group_system">系統</string>
+    <string name="read_aloud_engine_group_http">HTTP 書源</string>
+    <string name="read_aloud_engine_group_cloud">雲端</string>
+    <string name="read_aloud_engine_tag_book">本書當前</string>
+    <string name="read_aloud_engine_tag_global">全局當前</string>
+    <string name="read_aloud_engine_default_voice">引擎默認</string>
+    <string name="read_aloud_engine_manage">管理引擎</string>
+    <string name="read_aloud_engine_detail_system">本地合成</string>
+    <string name="read_aloud_engine_detail_http">書源合成</string>
+    <string name="read_aloud_engine_detail_cloud">雲端合成</string>
+    <string name="read_aloud_engine_load_failed">引擎目錄加載失败</string>
+    <string name="read_aloud_engine_load_failed_summary">点擊重试</string>
 </resources>

@@ -1,5 +1,6 @@
 package io.legado.app.data.repository
 
+import io.legado.app.data.dao.BookDao
 import io.legado.app.data.dao.ReadAloudVoiceDao
 import io.legado.app.data.entities.BookVoiceBindingEntity
 import io.legado.app.data.entities.ReadAloudVoiceEntity
@@ -13,6 +14,7 @@ import kotlinx.coroutines.withContext
 
 class ReadAloudVoiceRepository(
     private val dao: ReadAloudVoiceDao,
+    private val bookDao: BookDao,
 ) : ReadAloudVoiceGateway {
 
     override fun observeVoices(): Flow<List<ReadAloudVoice>> =
@@ -62,6 +64,20 @@ class ReadAloudVoiceRepository(
 
     override suspend fun deleteBinding(binding: BookVoiceBinding) = withContext(Dispatchers.IO) {
         dao.deleteBinding(binding.toEntity())
+    }
+
+    override suspend fun getBookTtsSelection(bookUrl: String): String? =
+        withContext(Dispatchers.IO) {
+            bookDao.getBook(bookUrl)?.config?.ttsEngine
+        }
+
+    override suspend fun setBookTtsSelection(bookUrl: String, value: String?) {
+        withContext(Dispatchers.IO) {
+            bookDao.getBook(bookUrl)?.let { book ->
+                book.setTtsEngine(value)
+                bookDao.update(book)
+            }
+        }
     }
 }
 
