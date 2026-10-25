@@ -9,6 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import io.legado.app.ui.theme.LegadoTheme
+import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -148,4 +153,23 @@ fun ReadStyleContent(
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
     }
+
+}
+/**
+ * 日夜快切小圆钮（图标随当前主题，全局唯一实现）。
+ *
+ * 「阅读界面」主题页与朗读面板标题行共用；点击行为由调用方传入
+ * （都走 ToggleDayNight，由 ReadStyleDelegate 统一处理）。
+ */
+@Composable
+fun DayNightQuickToggle(onToggleDayNight: () -> Unit) {
+    SmallTonalButton(
+        onClick = onToggleDayNight,
+        icon = if (LegadoTheme.isDark) Icons.Default.DarkMode else Icons.Default.LightMode,
+        contentColor = LegadoTheme.colorScheme.onSurfaceVariant,
+        containerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
+        selectedContainerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
+        selectedContentColor = LegadoTheme.colorScheme.onSurfaceVariant,
+        contentDescription = stringResource(R.string.theme_mode),
+    )
 }

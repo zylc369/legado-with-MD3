@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -59,6 +60,8 @@ fun ReadAloudContent(
     modifier: Modifier = Modifier,
     /** 「管理引擎」入口（跳「引擎与音色」页）。 */
     onManageEngines: () -> Unit,
+    /** 「阅读界面」入口：朗读中调整外观/日夜不必再绕主菜单。 */
+    onOpenReadStyle: () -> Unit = {},
 ) {
     val ttsSpeechRate = state.readAloudTtsSpeechRate
     var speechRatePreview by remember(ttsSpeechRate) { mutableFloatStateOf(ttsSpeechRate.toFloat()) }
@@ -177,6 +180,11 @@ fun ReadAloudContent(
                 icon = Icons.AutoMirrored.Filled.List,
                 label = stringResource(R.string.chapter_list),
                 onClick = onOpenChapterList,
+            )
+            ActionButton(
+                icon = Icons.Default.Palette,
+                label = stringResource(R.string.read_config),
+                onClick = onOpenReadStyle,
             )
             ActionButton(
                 icon = Icons.Default.VisibilityOff,

@@ -746,6 +746,12 @@ private fun ReadBookMenuSurface(
                             maxHeight = maxHeight,
                             scrollContent = true,
                             bottomPadding = if (extendSurfaceToNavigationBar) navBarHeight else 0.dp,
+                            // 朗读中最高频的外观操作是切日夜：放在标题行，免绕“返回→设置”
+                            endAction = {
+                                io.legado.app.ui.book.read.sheet.DayNightQuickToggle(
+                                    onToggleDayNight = { onIntent(ReadBookIntent.ToggleDayNight) },
+                                )
+                            },
                             onBack = { onIntent(ReadBookIntent.ReadMenuBack) },
                         ) {
                             ReadAloudContent(
@@ -768,6 +774,11 @@ private fun ReadBookMenuSurface(
                                 onShowTimerSettings = { readAloudTimerSheetOpen = true },
                                 onManageEngines = {
                                     onIntent(ReadBookIntent.OpenTtsEnginesAndVoices)
+                                },
+                                onOpenReadStyle = {
+                                    onIntent(
+                                        ReadBookIntent.OpenReadMenuRoute(ReadBookMenuRoute.ReadStyle)
+                                    )
                                 },
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
@@ -811,6 +822,8 @@ private fun ReadBookMenuRoutePage(
     scrollContent: Boolean = false,
     bottomPadding: Dp = 0.dp,
     animateSize: Boolean = true,
+    /** 标题行尾部动作（如朗读页的日夜快切）；缺省保持原有 48dp 占位对齐。 */
+    endAction: (@Composable () -> Unit)? = null,
     onBack: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -841,7 +854,11 @@ private fun ReadBookMenuRoutePage(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.width(48.dp))
+            if (endAction != null) {
+                endAction()
+            } else {
+                Spacer(Modifier.width(48.dp))
+            }
         }
 
         if (scrollContent) {

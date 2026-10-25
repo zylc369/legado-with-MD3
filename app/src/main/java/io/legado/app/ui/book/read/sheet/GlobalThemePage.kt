@@ -175,15 +175,7 @@ fun GlobalThemePage(
                     containerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
                     contentDescription = stringResource(R.string.eye_protection),
                 )
-                SmallTonalButton(
-                    onClick = onToggleDayNight,
-                    icon = if (isNightTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
-                    contentColor = LegadoTheme.colorScheme.onSurfaceVariant,
-                    containerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
-                    selectedContainerColor = LegadoTheme.colorScheme.surfaceContainerHigh,
-                    selectedContentColor = LegadoTheme.colorScheme.onSurfaceVariant,
-                    contentDescription = stringResource(R.string.theme_mode),
-                )
+                DayNightQuickToggle(onToggleDayNight = onToggleDayNight)
             }
 
             Spacer(Modifier.height(8.dp))
