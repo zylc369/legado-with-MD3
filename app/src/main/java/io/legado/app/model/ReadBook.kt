@@ -1138,7 +1138,10 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             if (readerChapterInputWindow.current == null) {
                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                 if (upContentInPlace) renderCallBack?.upContent()
-                loadContent(durChapterIndex, upContent, resetPageOffset = false)
+                loadContent(
+                    durChapterIndex, upContent, resetPageOffset = false,
+                    nav = chapterMoveIntent(),
+                )
             } else if (upContent && upContentInPlace) {
                 AppLog.putDebug("moveToNextChapter-章节已加载,刷新视图")
                 renderCallBack?.upContent()
@@ -1147,7 +1150,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             saveRead()
             callBack?.upMenuView()
             AppLog.putDebug("moveToNextChapter-curPageChanged()")
-            curPageChanged()
+            curPageChanged(nav = chapterMoveIntent())
             publishSnapshot()
             return true
         } else {
@@ -1168,7 +1171,10 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             if (readerChapterInputWindow.current == null) {
                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                 if (upContentInPlace) renderCallBack?.upContentAwait()
-                loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
+                loadContentAwait(
+                    durChapterIndex, upContent, resetPageOffset = false,
+                    nav = chapterMoveIntent(),
+                )
             } else if (upContent && upContentInPlace) {
                 AppLog.putDebug("moveToNextChapter-章节已加载,刷新视图")
                 renderCallBack?.upContentAwait()
@@ -1177,7 +1183,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             saveRead()
             callBack?.upMenuView()
             AppLog.putDebug("moveToNextChapter-curPageChanged()")
-            curPageChanged()
+            curPageChanged(nav = chapterMoveIntent())
             publishSnapshot()
             return true
         } else {
@@ -1203,14 +1209,17 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             moveReaderChapterInputPrevious()
             if (readerChapterInputWindow.current == null) {
                 if (upContentInPlace) renderCallBack?.upContent()
-                loadContent(durChapterIndex, upContent, resetPageOffset = false)
+                loadContent(
+                    durChapterIndex, upContent, resetPageOffset = false,
+                    nav = chapterMoveIntent(),
+                )
             } else if (upContent && upContentInPlace) {
                 renderCallBack?.upContent()
             }
             loadContent(durChapterIndex.minus(1), upContent, false)
             saveRead()
             callBack?.upMenuView()
-            curPageChanged()
+            curPageChanged(nav = chapterMoveIntent())
             publishSnapshot()
             return true
         } else {
@@ -1237,7 +1246,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         renderCallBack?.upContent {
             success?.invoke()
         }
-        curPageChanged()
+        curPageChanged(nav = ReaderNavIntent.UserJump)
         saveRead(true)
         publishSnapshot()
     }
@@ -1246,7 +1255,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         prepareManualNavigation()
         durChapterPos = readerPagination()?.pageStart(index) ?: return
         saveRead(true)
-        curPageChanged(true)
+        curPageChanged(pageChanged = true, nav = ReaderNavIntent.UserJump)
         publishSnapshot()
     }
 
@@ -1254,6 +1263,8 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         index: Int,
         durChapterPos: Int = 0,
         upContent: Boolean = true,
+        /** 导航意图：决定朗读处置（见 [ReadAloudNavPolicy] 契约表）。 */
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         success: (() -> Unit)? = null
     ) {
         prepareManualNavigation()
@@ -1268,7 +1279,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             ReadBook.durChapterPos = durChapterPos
             publishSnapshot()
             saveRead()
-            loadContent(resetPageOffset = true) {
+            loadContent(resetPageOffset = true, nav = nav) {
                 success?.invoke()
             }
         }
@@ -1279,19 +1290,14 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      */
     private fun curPageChanged(
         pageChanged: Boolean = false,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent,
     ) {
         renderCallBack?.pageChanged()
-        readerChapterInputWindow.current?.let { input ->
+        readerChapterInputWindow.current?.let {
             if (BaseReadAloudService.isRun) {
                 // 页面已脱离朗读位置（用户手动导航）：既不重启朗读到当前页，也不把页面拉回朗读位置
                 if (readAloudSessionStore.state.value.followReadAloudPosition) {
-                    if (shouldRestartReadAloudAfterContentLoad(
-                            preserveReadAloudPosition = preserveReadAloudPosition,
-                            serviceChapterIndex = BaseReadAloudService.currentChapterIndex,
-                            loadedChapterIndex = input.chapter.index,
-                        )
-                    ) {
+                    if (ReadAloudNavPolicy.restartsReadAloud(nav)) {
                         if (isScroll && pageChanged) {
                             ReadAloud.pause(appCtx)
                         } else {
@@ -1306,6 +1312,18 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         upReadTime()
         preDownload()
     }
+
+    /**
+     * 换章入口同时服务两类调用方（菜单上一章/下一章 vs 朗读念完自动换章）。
+     * 以 [BaseReadAloudService.speechDrivingNavigation] 标记区分意图；
+     * 两者的处置同为“重启”，但语义分开登记，位置策略未来分化时不再改调用方。
+     */
+    private fun chapterMoveIntent(): ReaderNavIntent =
+        if (BaseReadAloudService.speechDrivingNavigation) {
+            ReaderNavIntent.SpeechAdvance
+        } else {
+            ReaderNavIntent.UserJump
+        }
 
     /**
      * 朗读
@@ -1396,13 +1414,13 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      */
     fun loadContent(
         resetPageOffset: Boolean,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         success: (() -> Unit)? = null
     ) {
         loadContent(
             durChapterIndex,
             resetPageOffset = resetPageOffset,
-            preserveReadAloudPosition = preserveReadAloudPosition,
+            nav = nav,
         ) {
             success?.invoke()
         }
@@ -1430,20 +1448,20 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     }
 
     fun relayoutContent() {
-        loadContent(
-            resetPageOffset = false,
-            preserveReadAloudPosition = true,
-        )
+        loadContent(resetPageOffset = false, nav = ReaderNavIntent.KeepReading)
     }
 
     fun loadOrUpContent(success: (() -> Unit)? = null) {
         if (readerChapterInputWindow.current == null) {
-            val preserveReadAloudPosition = BaseReadAloudService.isRun &&
-                    BaseReadAloudService.currentChapterIndex == durChapterIndex
-            loadContent(
-                durChapterIndex,
-                preserveReadAloudPosition = preserveReadAloudPosition,
+            // 同章内容缺失补装：朗读若正在念这一章，装完不能把它拽回章首
+            val nav = if (BaseReadAloudService.isRun &&
+                BaseReadAloudService.currentChapterIndex == durChapterIndex
             ) {
+                ReaderNavIntent.KeepReading
+            } else {
+                ReaderNavIntent.UserJump
+            }
+            loadContent(durChapterIndex, nav = nav) {
                 success?.invoke()
             }
         } else {
@@ -1469,7 +1487,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         index: Int,
         upContent: Boolean = true,
         resetPageOffset: Boolean = false,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         success: (() -> Unit)? = null
     ) {
         Coroutine.async {
@@ -1499,14 +1517,14 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                         it,
                         upContent,
                         resetPageOffset,
-                        preserveReadAloudPosition,
-                        success = success
+                        nav,
+                        success = success,
                     )
                 } ?: download(
                     downloadScope,
                     chapter,
                     resetPageOffset,
-                    preserveReadAloudPosition = preserveReadAloudPosition,
+                    nav = nav,
                 )
             }
         }.onError {
@@ -1522,6 +1540,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         index: Int,
         upContent: Boolean = true,
         resetPageOffset: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         success: (() -> Unit)? = null
     ) = withContext(IO) {
         if (addLoading(index)) {
@@ -1545,7 +1564,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                     }
                 }
                 ReaderPerfTrace.suspendSection("content.layout-and-publish") {
-                    contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
+                    contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset, nav)
                 }
                 success?.invoke()
             } catch (e: Exception) {
@@ -1589,7 +1608,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         scope: CoroutineScope,
         chapter: BookChapter,
         resetPageOffset: Boolean,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         semaphore: Semaphore? = null,
         success: (() -> Unit)? = null
     ) {
@@ -1602,7 +1621,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                     chapter = chapter,
                     semaphore = semaphore,
                     resetPageOffset = resetPageOffset,
-                    preserveReadAloudPosition = preserveReadAloudPosition,
+                    nav = nav,
                 )
             if (!started) {
                 removeLoading(chapter.index)
@@ -1614,8 +1633,8 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                 chapter,
                 "加载正文失败\n$msg",
                 resetPageOffset = resetPageOffset,
-                preserveReadAloudPosition = preserveReadAloudPosition,
-                success = success
+                nav = nav,
+                success = success,
             )
         }
     }
@@ -1692,7 +1711,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         content: String,
         upContent: Boolean = true,
         resetPageOffset: Boolean,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
         canceled: Boolean = false,
         success: (() -> Unit)? = null
     ) {
@@ -1707,7 +1726,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                 content = content,
                 upContent = upContent,
                 resetPageOffset = resetPageOffset,
-                preserveReadAloudPosition = preserveReadAloudPosition,
+                nav = nav,
             )
             withContext(Main) {
                 success?.invoke()
@@ -1721,7 +1740,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         content: String,
         upContent: Boolean,
         resetPageOffset: Boolean,
-        preserveReadAloudPosition: Boolean,
+        nav: ReaderNavIntent,
     ) {
         if (!isCurrentLocalChapter(chapter)) return
         val pageEstimateGeneration = wholeBookPageCoordinator.generation
@@ -1778,9 +1797,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             0 -> {
                 callBack?.upMenuView()
                 if (upContent) renderCallBack?.upContent(offset, resetPageOffset)
-                curPageChanged(
-                    preserveReadAloudPosition = preserveReadAloudPosition,
-                )
+                curPageChanged(nav = nav)
                 renderCallBack?.contentLoadFinish()
                 publishSnapshot()
             }
@@ -1801,7 +1818,8 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         chapter: BookChapter,
         content: String,
         upContent: Boolean = true,
-        resetPageOffset: Boolean
+        resetPageOffset: Boolean,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
     ) {
         removeLoading(chapter.index)
         if (chapter.index !in durChapterIndex - 1..durChapterIndex + 1) {
@@ -1814,7 +1832,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                 content = content,
                 upContent = upContent,
                 resetPageOffset = resetPageOffset,
-                preserveReadAloudPosition = false,
+                nav = nav,
             )
         }.await()
     }

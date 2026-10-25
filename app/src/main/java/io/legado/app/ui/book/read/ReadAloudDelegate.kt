@@ -16,6 +16,7 @@ import io.legado.app.domain.usecase.SyncReadAloudVoicesUseCase
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadAloudSessionStore
 import io.legado.app.model.ReadBook
+import io.legado.app.model.ReaderNavIntent
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.readaloud.ReadAloudPlayerOverlayBus
 import kotlinx.coroutines.CoroutineScope
@@ -175,7 +176,12 @@ class ReadAloudDelegate(
         if (speakingChapterIndex != ReadBook.durChapterIndex) {
             // 跳到朗读位置属于朗读相关的页面移动，不能触发手动脱离
             BaseReadAloudService.withSpeechNavigation {
-                ReadBook.openChapter(speakingChapterIndex, chapterStart) {
+                // 朗读已在该章进行中：只移动页面并同步页表，不得重启（否则从章首重念）
+                ReadBook.openChapter(
+                    speakingChapterIndex,
+                    chapterStart,
+                    nav = ReaderNavIntent.KeepReading,
+                ) {
                     ReadBook.upTextChapterAloudSpan(chapterStart)
                 }
             }

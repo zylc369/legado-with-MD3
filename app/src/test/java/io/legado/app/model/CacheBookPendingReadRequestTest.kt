@@ -1,24 +1,23 @@
 package io.legado.app.model
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CacheBookPendingReadRequestTest {
 
     @Test
-    fun firstRelayoutRequestPreservesReadAloudPosition() {
+    fun firstRelayoutRequestKeepsReading() {
         val request = mergePendingReadRequest(
             previous = null,
             resetPageOffset = false,
-            preserveReadAloudPosition = true,
+            nav = ReaderNavIntent.KeepReading,
         )
 
         assertEquals(
             PendingReadRequest(
                 resetPageOffset = false,
-                preserveReadAloudPosition = true,
+                nav = ReaderNavIntent.KeepReading,
             ),
             request,
         )
@@ -29,28 +28,28 @@ class CacheBookPendingReadRequestTest {
         val request = mergePendingReadRequest(
             previous = PendingReadRequest(
                 resetPageOffset = true,
-                preserveReadAloudPosition = true,
+                nav = ReaderNavIntent.KeepReading,
             ),
             resetPageOffset = false,
-            preserveReadAloudPosition = true,
+            nav = ReaderNavIntent.KeepReading,
         )
 
         assertTrue(request.resetPageOffset)
-        assertTrue(request.preserveReadAloudPosition)
+        assertEquals(ReaderNavIntent.KeepReading, request.nav)
     }
 
     @Test
-    fun anyNavigationRequestDisablesPositionPreservation() {
+    fun anyNavigationRequestOverridesPositionPreservation() {
         val request = mergePendingReadRequest(
             previous = PendingReadRequest(
                 resetPageOffset = false,
-                preserveReadAloudPosition = true,
+                nav = ReaderNavIntent.KeepReading,
             ),
             resetPageOffset = false,
-            preserveReadAloudPosition = false,
+            nav = ReaderNavIntent.UserJump,
         )
 
-        assertFalse(request.preserveReadAloudPosition)
+        assertEquals(ReaderNavIntent.UserJump, request.nav)
     }
 
     @Test
@@ -58,12 +57,12 @@ class CacheBookPendingReadRequestTest {
         val request = mergePendingReadRequest(
             previous = PendingReadRequest(
                 resetPageOffset = false,
-                preserveReadAloudPosition = false,
+                nav = ReaderNavIntent.UserJump,
             ),
             resetPageOffset = false,
-            preserveReadAloudPosition = true,
+            nav = ReaderNavIntent.KeepReading,
         )
 
-        assertFalse(request.preserveReadAloudPosition)
+        assertEquals(ReaderNavIntent.UserJump, request.nav)
     }
 }

@@ -2,6 +2,7 @@ package io.legado.app.ui.config.readConfig
 
 import io.legado.app.constant.EventBus
 import io.legado.app.model.ReadBook
+import io.legado.app.model.ReaderNavIntent
 import io.legado.app.ui.book.read.ConfigUpdateAction
 import io.legado.app.ui.book.read.ReadConfigUpdateBus
 import io.legado.app.utils.postEvent
@@ -53,11 +54,11 @@ class ApplyReadSettingUseCase {
     private fun updateLayout() {
         // The Compose paginator reads a fresh immutable style snapshot for every generation.
         // 排版变化不是导航：保留朗读游标，避免朗读回到页首。
-        ReadBook.loadContent(false, preserveReadAloudPosition = true)
+        ReadBook.loadContent(false, nav = ReaderNavIntent.KeepReading)
     }
 
     private fun updateStyle() {
         ReadBook.renderCallBack?.upPageAnim(true)
-        ReadBook.loadContent(false, preserveReadAloudPosition = true)
+        ReadBook.loadContent(false, nav = ReaderNavIntent.KeepReading)
     }
 }

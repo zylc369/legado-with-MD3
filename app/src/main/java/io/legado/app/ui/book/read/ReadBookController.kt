@@ -66,6 +66,7 @@ import io.legado.app.model.ImageProvider
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadAloudResumePolicy
 import io.legado.app.model.ReadBook
+import io.legado.app.model.ReaderNavIntent
 import io.legado.app.model.ReadSessionState
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setChapter
@@ -260,7 +261,7 @@ class ReadBookController(
             }
             // 主题/样式重排不是导航：保留朗读游标（否则会按页首重启朗读）
             if (viewModel.isInitFinish) {
-                ReadBook.loadContent(resetPageOffset = false, preserveReadAloudPosition = true)
+                ReadBook.loadContent(resetPageOffset = false, nav = ReaderNavIntent.KeepReading)
             }
         }
     }
@@ -2252,7 +2253,7 @@ class ReadBookController(
                             // 字号/行距等排版参数变化：重排正文但不重启朗读
                             ReadBook.loadContent(
                                 resetPageOffset = false,
-                                preserveReadAloudPosition = true,
+                                nav = ReaderNavIntent.KeepReading,
                             )
                         }
                         ConfigUpdateAction.RelayoutContent -> if (viewModel.isInitFinish) {

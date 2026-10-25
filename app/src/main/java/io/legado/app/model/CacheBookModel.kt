@@ -776,7 +776,7 @@ class CacheBookModel(
         chapter: BookChapter,
         semaphore: Semaphore?,
         resetPageOffset: Boolean = false,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
     ): Boolean {
         if (!markChapterDownloadStarted(chapter.index)) {
             // Chapter is already in onDownloadSet. Check if the task is actually alive.
@@ -791,19 +791,11 @@ class CacheBookModel(
                 }
                 notifyDownloadSetChanged()
                 if (!markChapterDownloadStarted(chapter.index)) {
-                    markPendingReadRequest(
-                        chapter.index,
-                        resetPageOffset,
-                        preserveReadAloudPosition,
-                    )
+                    markPendingReadRequest(chapter.index, resetPageOffset, nav)
                     return false
                 }
             } else {
-                markPendingReadRequest(
-                    chapter.index,
-                    resetPageOffset,
-                    preserveReadAloudPosition,
-                )
+                markPendingReadRequest(chapter.index, resetPageOffset, nav)
                 return true
             }
         }
@@ -819,12 +811,7 @@ class CacheBookModel(
         ).timeout(DOWNLOAD_TIMEOUT_MS)
         task.onSuccess { content ->
             // 正文先交给阅读器；缓存成功态等图片完成后再标记
-            downloadFinish(
-                chapter,
-                content,
-                resetPageOffset,
-                preserveReadAloudPosition = preserveReadAloudPosition,
-            )
+            downloadFinish(chapter, content, resetPageOffset, nav = nav)
             emitPendingReadContent(chapter, content)
             try {
                 ensureChapterImagesCached(chapter)
@@ -847,7 +834,7 @@ class CacheBookModel(
                 chapter,
                 "获取正文失败\n${it.localizedMessage}",
                 resetPageOffset,
-                preserveReadAloudPosition = preserveReadAloudPosition,
+                nav = nav,
             )
             emitPendingReadError(chapter, it)
         }.onCancel {
@@ -857,7 +844,7 @@ class CacheBookModel(
                 "download canceled",
                 resetPageOffset,
                 canceled = true,
-                preserveReadAloudPosition = preserveReadAloudPosition,
+                nav = nav,
             )
         }.onFinally {
             if (chapterTasks[chapter.index] === task) {
@@ -885,12 +872,12 @@ class CacheBookModel(
     private fun markPendingReadRequest(
         index: Int,
         resetPageOffset: Boolean,
-        preserveReadAloudPosition: Boolean,
+        nav: ReaderNavIntent,
     ) {
         pendingReadRequestMap[index] = mergePendingReadRequest(
             previous = pendingReadRequestMap[index],
             resetPageOffset = resetPageOffset,
-            preserveReadAloudPosition = preserveReadAloudPosition,
+            nav = nav,
         )
     }
 
@@ -905,7 +892,7 @@ class CacheBookModel(
             chapter,
             content,
             request.resetPageOffset,
-            preserveReadAloudPosition = request.preserveReadAloudPosition,
+            nav = request.nav,
         )
     }
 
@@ -915,7 +902,7 @@ class CacheBookModel(
             chapter,
             "获取正文失败\n${error.localizedMessage}",
             request.resetPageOffset,
-            preserveReadAloudPosition = request.preserveReadAloudPosition,
+            nav = request.nav,
         )
     }
 
@@ -925,7 +912,7 @@ class CacheBookModel(
             chapter,
             "download canceled",
             request.resetPageOffset,
-            preserveReadAloudPosition = request.preserveReadAloudPosition,
+            nav = request.nav,
         )
     }
 
@@ -934,7 +921,7 @@ class CacheBookModel(
         content: String,
         resetPageOffset: Boolean = false,
         canceled: Boolean = false,
-        preserveReadAloudPosition: Boolean = false,
+        nav: ReaderNavIntent = ReaderNavIntent.UserJump,
     ) {
         if (ReadBook.book?.bookUrl == book.bookUrl) {
             ReadBook.contentLoadFinish(
@@ -943,7 +930,7 @@ class CacheBookModel(
                 content = content,
                 resetPageOffset = resetPageOffset,
                 canceled = canceled,
-                preserveReadAloudPosition = preserveReadAloudPosition,
+                nav = nav,
             )
         }
     }
@@ -951,15 +938,24 @@ class CacheBookModel(
 
 internal data class PendingReadRequest(
     val resetPageOffset: Boolean,
-    val preserveReadAloudPosition: Boolean,
+    val nav: ReaderNavIntent,
 )
 
+/**
+ * 合并同一章的待读请求：滚动偏移按 OR；朗读意图按“最保守”合并——
+ * 只要有一方要求重启（UserJump/SpeechAdvance），后到的 KeepReading 不得把它翻回去。
+ */
 internal fun mergePendingReadRequest(
     previous: PendingReadRequest?,
     resetPageOffset: Boolean,
-    preserveReadAloudPosition: Boolean,
+    nav: ReaderNavIntent,
 ): PendingReadRequest = PendingReadRequest(
     resetPageOffset = previous?.resetPageOffset == true || resetPageOffset,
-    preserveReadAloudPosition =
-        (previous?.preserveReadAloudPosition ?: true) && preserveReadAloudPosition,
+    nav = when {
+        previous == null -> nav
+        previous.nav == ReaderNavIntent.KeepReading && nav == ReaderNavIntent.KeepReading ->
+            ReaderNavIntent.KeepReading
+
+        else -> ReaderNavIntent.UserJump
+    },
 )
