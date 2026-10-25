@@ -641,7 +641,14 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         // 脱离后朗读位置归用户：分页批次落地不代表朗读要跟到页面所在章节
         if (!readAloudSessionStore.state.value.followReadAloudPosition) return
         if (snapshots.none { it.chapterIndex == durChapterIndex }) return
-        if (BaseReadAloudService.currentChapterIndex == durChapterIndex) return
+        if (BaseReadAloudService.currentChapterIndex == durChapterIndex) {
+            // 本函数只有一个调用点（publishReaderPagination）：能运行即意味着显示章
+            // 刚完成一次（重）排。此刻服务朗读章 == 显示章（跟随朗读的常态），
+            // 说明被重排的正是朗读所在章——文字与游标未变，让服务换用新页表即可；
+            // 不得重启（重启会按页首开始，造成进度回退）。
+            ReadAloud.syncLayout()
+            return
+        }
         readAloud(play = !BaseReadAloudService.pause)
     }
 

@@ -258,7 +258,10 @@ class ReadBookController(
             if (sources.isNotEmpty()) {
                 replaceReaderImages(viewModel.refreshImageFiles(sources))
             }
-            if (viewModel.isInitFinish) ReadBook.loadContent(resetPageOffset = false)
+            // 主题/样式重排不是导航：保留朗读游标（否则会按页首重启朗读）
+            if (viewModel.isInitFinish) {
+                ReadBook.loadContent(resetPageOffset = false, preserveReadAloudPosition = true)
+            }
         }
     }
 
@@ -2246,7 +2249,11 @@ class ReadBookController(
                         ConfigUpdateAction.ReloadContent -> if (
                             !refreshInlineImages && viewModel.isInitFinish
                         ) {
-                            ReadBook.loadContent(resetPageOffset = false)
+                            // 字号/行距等排版参数变化：重排正文但不重启朗读
+                            ReadBook.loadContent(
+                                resetPageOffset = false,
+                                preserveReadAloudPosition = true,
+                            )
                         }
                         ConfigUpdateAction.RelayoutContent -> if (viewModel.isInitFinish) {
                             layoutController.requestRelayout()

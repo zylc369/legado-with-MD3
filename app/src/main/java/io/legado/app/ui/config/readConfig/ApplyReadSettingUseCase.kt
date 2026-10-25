@@ -52,11 +52,12 @@ class ApplyReadSettingUseCase {
 
     private fun updateLayout() {
         // The Compose paginator reads a fresh immutable style snapshot for every generation.
-        ReadBook.loadContent(false)
+        // 排版变化不是导航：保留朗读游标，避免朗读回到页首。
+        ReadBook.loadContent(false, preserveReadAloudPosition = true)
     }
 
     private fun updateStyle() {
         ReadBook.renderCallBack?.upPageAnim(true)
-        ReadBook.loadContent(false)
+        ReadBook.loadContent(false, preserveReadAloudPosition = true)
     }
 }
