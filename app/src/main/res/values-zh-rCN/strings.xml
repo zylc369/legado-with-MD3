@@ -357,7 +357,6 @@
     <string name="bookmark_add">添加书签</string>
     <string name="bookmark_added">已添加书签</string>
     <string name="bookmark_removed">已取消书签</string>
-    <string name="bookmark_jump_to_position">跳转到书签位置</string>
     <string name="swipe_to_add_bookmark">下滑添加书签</string>
     <string name="bookmark_swipe_release_to_add">松手以添加书签</string>
     <string name="bookmark_swipe_release_to_remove">松手以取消书签</string>
@@ -3441,4 +3440,5 @@
     <string name="read_aloud_engine_detail_cloud">云端合成</string>
     <string name="read_aloud_engine_load_failed">引擎目录加载失败</string>
     <string name="read_aloud_engine_load_failed_summary">点击重试</string>
+    <string name="delete_selected_count">删除已选（%1$d）</string>
 </resources>

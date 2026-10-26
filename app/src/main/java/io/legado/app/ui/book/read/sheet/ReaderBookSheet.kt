@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -45,7 +46,6 @@ import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Refresh
@@ -53,6 +53,17 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.DownloadForOffline
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.ui.zIndex
+import io.legado.app.ui.widget.components.ActionItem
+import io.legado.app.ui.widget.components.SelectionBottomBar
+import io.legado.app.ui.widget.components.checkBox.SelectionCheckBadge
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -195,6 +206,7 @@ fun ReaderBookSheetRoute(
         initialTab = initialTab,
         onDismissRequest = {
             viewModel.onIntent(TocIntent.ClearSelection)
+            viewModel.onIntent(TocIntent.ClearBookmarkSelection)
             viewModel.onIntent(TocIntent.SetSearchQuery(""))
             onDismissRequest()
         },
@@ -284,6 +296,14 @@ private fun ReaderBookSheet(
     LaunchedEffect(show, initialPage) {
         if (show) pagerState.scrollToPage(initialPage)
     }
+    // 点 Tab 与滑动切页都要清空选择：否则「看不见的选择模式」会吞掉返回键
+    LaunchedEffect(pagerState.settledPage) {
+        onIntent(TocIntent.ClearSelection)
+        onIntent(TocIntent.ClearBookmarkSelection)
+    }
+    BackHandler(enabled = show && state.bookmarkSelectionActive) {
+        onIntent(TocIntent.ClearBookmarkSelection)
+    }
     BackHandler(enabled = show && state.action.selectedIds.isNotEmpty()) {
         onIntent(TocIntent.ClearSelection)
     }
@@ -317,6 +337,7 @@ private fun ReaderBookSheet(
             onTabSelected = {
                 onIntent(TocIntent.SetSearchQuery(""))
                 onIntent(TocIntent.ClearSelection)
+                onIntent(TocIntent.ClearBookmarkSelection)
                 scope.launch { pagerState.animateScrollToPage(it) }
             },
             onTabLongClick = { index ->
@@ -1216,8 +1237,14 @@ private fun ReaderBookBookmarksPage(
         ReaderSheetBookmarkList(
             bookmarks = state.bookmarks,
             currentChapterIndex = state.book?.durChapterIndex,
+            selectionActive = state.bookmarkSelectionActive,
+            selectedIds = state.selectedBookmarkIds,
             onBookmarkNavigate = onBookmarkNavigate,
             onEditBookmark = onEditBookmark,
+            onEnterSelection = { onIntent(TocIntent.EnterBookmarkSelection(it)) },
+            onToggleSelection = { onIntent(TocIntent.ToggleBookmarkSelection(it)) },
+            onClearSelection = { onIntent(TocIntent.ClearBookmarkSelection) },
+            onDeleteSelected = { onIntent(TocIntent.DeleteSelectedBookmarks) },
         )
     }
 }
@@ -1227,8 +1254,14 @@ private fun ReaderBookBookmarksPage(
 private fun ReaderSheetBookmarkList(
     bookmarks: List<TocBookmarkItemUi>,
     currentChapterIndex: Int?,
+    selectionActive: Boolean,
+    selectedIds: Set<Long>,
     onBookmarkNavigate: (Bookmark) -> Unit,
     onEditBookmark: (Bookmark) -> Unit,
+    onEnterSelection: (Long) -> Unit,
+    onToggleSelection: (Long) -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelected: () -> Unit,
 ) {
     val listState = rememberLazyListState()
 
@@ -1241,35 +1274,71 @@ private fun ReaderSheetBookmarkList(
         }
     }
 
-    if (bookmarks.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            EmptyMessage(message = stringResource(R.string.no_bookmark))
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (bookmarks.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyMessage(message = stringResource(R.string.no_bookmark))
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                // 选择模式时给底部操作条（含导航栏 inset）留出空间
+                contentPadding = PaddingValues(bottom = if (selectionActive) 120.dp else 24.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(
+                    items = bookmarks,
+                    key = { it.id },
+                    contentType = { "bookmark" },
+                ) { bookmark ->
+                    ReaderSheetBookmarkItem(
+                        item = bookmark,
+                        selectionMode = selectionActive,
+                        selected = bookmark.id in selectedIds,
+                        onClick = {
+                            if (selectionActive) {
+                                onToggleSelection(bookmark.id)
+                            } else {
+                                // 点按直接跳转（原定位按钮的职责）
+                                onBookmarkNavigate(bookmark.raw)
+                            }
+                        },
+                        // 编辑按钮（原定位按钮的位置）
+                        onEdit = { onEditBookmark(bookmark.raw) },
+                        // 长按进入多选，并选中当前项
+                        onLongClick = { onEnterSelection(bookmark.id) },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
         }
-        return
-    }
+        }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        items(
-            items = bookmarks,
-            key = { it.id },
-            contentType = { "bookmark" },
-        ) { bookmark ->
-            ReaderSheetBookmarkItem(
-                item = bookmark,
-                onClick = { onEditBookmark(bookmark.raw) },
-                onNavigate = { onBookmarkNavigate(bookmark.raw) },
-                onLongClick = {
-                    onBookmarkNavigate(bookmark.raw)
-                },
-                modifier = Modifier.animateItem(),
+        AnimatedVisibility(
+            visible = selectionActive,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp)
+                .zIndex(1f),
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            SelectionBottomBar(
+                primaryAction = ActionItem(
+                    text = stringResource(R.string.delete_selected_count, selectedIds.size),
+                    icon = Icons.Default.Delete,
+                    enabled = selectedIds.isNotEmpty(),
+                    // 删除由 VM 按完整书签清单解析，搜索过滤不会漏删
+                    onClick = onDeleteSelected,
+                ),
+                dismissAction = ActionItem(
+                    text = stringResource(R.string.cancel),
+                    icon = Icons.Default.Close,
+                    onClick = onClearSelection,
+                ),
             )
         }
     }
@@ -1278,20 +1347,24 @@ private fun ReaderSheetBookmarkList(
 @Composable
 private fun ReaderSheetBookmarkItem(
     item: TocBookmarkItemUi,
+    selectionMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
-    onNavigate: () -> Unit,
+    onEdit: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = if (item.isDur) {
-        LegadoTheme.colorScheme.secondaryContainer
-    } else {
-        LegadoTheme.colorScheme.surfaceContainerLow
+    val colors = LegadoTheme.colorScheme
+    // 选中态优先于“当前章”底色：描边+浅色底让扫视一目了然
+    val containerColor = when {
+        selected -> colors.primary.copy(alpha = 0.10f)
+        item.isDur -> colors.secondaryContainer
+        else -> colors.surfaceContainerLow
     }
-    val contentColor = if (item.isDur) {
-        LegadoTheme.colorScheme.onSecondaryContainer
+    val contentColor = if (item.isDur && !selected) {
+        colors.onSecondaryContainer
     } else {
-        LegadoTheme.colorScheme.onSurface
+        colors.onSurface
     }
 
     NormalCard(
@@ -1300,6 +1373,11 @@ private fun ReaderSheetBookmarkItem(
         cornerRadius = 12.dp,
         containerColor = containerColor,
         contentColor = contentColor,
+        border = if (selected) {
+            BorderStroke(1.5.dp, colors.primary.copy(alpha = 0.65f))
+        } else {
+            null
+        },
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
@@ -1347,23 +1425,33 @@ private fun ReaderSheetBookmarkItem(
                     )
                 }
             }
-            IconButton(
-                onClick = onNavigate,
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MyLocation,
-                    contentDescription = stringResource(R.string.bookmark_jump_to_position),
-                    tint = contentColor,
-                    modifier = Modifier.size(18.dp),
+            if (selectionMode) {
+                SelectionCheckBadge(
+                    selected = selected,
+                    modifier = Modifier.padding(end = 8.dp),
                 )
+            } else {
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.edit),
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * 划线/高亮笔记页：与书签一致，点按进入编辑（MarkingSheet），长按跳转到标记位置。
+ * 划线/高亮笔记页：点按进入编辑（MarkingSheet），长按跳转到标记位置。
+ *
+ * 注意：书签页的交互已改为「点按跳转 / 右侧编辑按钮 / 长按多选删除」，
+ * 两页不再共用同一套手势语义。
  */
 @Composable
 private fun ReaderBookMarkingsPage(

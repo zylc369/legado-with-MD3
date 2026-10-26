@@ -97,6 +97,17 @@ data class TocBookmarkItemUi(
     val raw: Bookmark
 )
 
+/**
+ * 按 id 从**完整**书签清单解析选中项。
+ *
+ * 删除语义是“删除所有已选”——搜索过滤只影响展示，不得缩小删除范围，
+ * 因此解析必须用未过滤清单（[TocViewModel.rawBookmarkItems]）而非 UI 列表。
+ */
+internal fun resolveSelectedBookmarks(
+    all: List<TocBookmarkItemUi>,
+    selectedIds: Set<Long>,
+): List<TocBookmarkItemUi> = all.filter { it.id in selectedIds }
+
 /** 划线/高亮笔记（book_marks 表）在目录 Sheet 里的展示项。 */
 @Immutable
 data class TocMarkingItemUi(
@@ -131,6 +142,9 @@ data class TocUiState(
     val book: Book? = null,
     val collapsedVolumes: ImmutableSet<Int> = persistentSetOf(),
     val bookmarks: ImmutableList<TocBookmarkItemUi> = persistentListOf(),
+    /** 书签多选模式：与已选数量解耦（0 选中时底栏保留、删除置灰）。 */
+    val bookmarkSelectionActive: Boolean = false,
+    val selectedBookmarkIds: ImmutableSet<Long> = persistentSetOf(),
     val markings: ImmutableList<TocMarkingItemUi> = persistentListOf(),
     val isSplitLongChapter: Boolean = false,
     val isReverse: Boolean = false,
@@ -146,6 +160,10 @@ sealed interface TocIntent {
     data class ExportBookmarks(val uri: Uri, val isMarkdown: Boolean) : TocIntent
     data class UpdateBookmark(val bookmark: Bookmark) : TocIntent
     data class DeleteBookmark(val bookmark: Bookmark) : TocIntent
+    data class EnterBookmarkSelection(val id: Long) : TocIntent
+    data class ToggleBookmarkSelection(val id: Long) : TocIntent
+    data object ClearBookmarkSelection : TocIntent
+    data object DeleteSelectedBookmarks : TocIntent
     data class DownloadChapter(val id: Int) : TocIntent
     data object DownloadAll : TocIntent
     data object DownloadSelected : TocIntent
@@ -306,24 +324,14 @@ class TocViewModel(
             initialValue = emptySet()
         )
 
-    val bookmarkUiList: StateFlow<List<TocBookmarkItemUi>> =
-        combine(
-            bookState.filterNotNull(),
-            _searchKey
-        ) { book, query ->
-            book to query
-        }
-            .flatMapLatest { (book, query) ->
+    /** 未过滤的书签清单：多选删除按 id 解析时不受搜索条件影响。 */
+    private val rawBookmarkItems: StateFlow<List<TocBookmarkItemUi>> =
+        bookState.filterNotNull()
+            .flatMapLatest { book ->
                 bookmarkRepository
                     .flowByBook(book.name, book.author)
                     .map { list ->
-                        list
-                            .asSequence()
-                            .filter {
-                                query.isBlank() ||
-                                        it.content.contains(query, ignoreCase = true)
-                            }
-                            .map { bookmark ->
+                        list.map { bookmark ->
                                 TocBookmarkItemUi(
                                     id = bookmark.time,
                                     chapterIndex = bookmark.chapterIndex,
@@ -342,6 +350,26 @@ class TocViewModel(
                 started = SharingStarted.WhileSubscribed(5000),
                 initialValue = emptyList()
             )
+
+    val bookmarkUiList: StateFlow<List<TocBookmarkItemUi>> =
+        combine(rawBookmarkItems, _searchKey) { items, query ->
+            if (query.isBlank()) {
+                items
+            } else {
+                items.filter { it.content.contains(query, ignoreCase = true) }
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    private data class BookmarkSelectionState(
+        val active: Boolean = false,
+        val ids: Set<Long> = emptySet(),
+    )
+
+    private val bookmarkSelectionState = MutableStateFlow(BookmarkSelectionState())
 
     val markingUiList: StateFlow<List<TocMarkingItemUi>> =
         combine(
@@ -389,18 +417,25 @@ class TocViewModel(
             )
 
     val screenState: StateFlow<TocUiState> by lazy {
+        // 超过 5 个流时 combine 会退化成无类型 vararg：把后两个合成一对
+        val selectionAndMarkings = combine(
+            bookmarkSelectionState,
+            markingUiList,
+        ) { selection, markings -> selection to markings }
         combine(
             uiState,
             bookState,
             collapsedVolumes,
             bookmarkUiList,
-            markingUiList,
-        ) { action, book, collapsed, bookmarks, markings ->
+            selectionAndMarkings,
+        ) { action, book, collapsed, bookmarks, (bookmarkSelection, markings) ->
             TocUiState(
                 action = action,
                 book = book,
                 collapsedVolumes = collapsed.toImmutableSet(),
                 bookmarks = bookmarks.toImmutableList(),
+                bookmarkSelectionActive = bookmarkSelection.active,
+                selectedBookmarkIds = bookmarkSelection.ids.toImmutableSet(),
                 markings = markings.toImmutableList(),
                 isSplitLongChapter = book?.getSplitLongChapter() ?: false,
                 isReverse = book?.getReverseToc() ?: false,
@@ -608,6 +643,7 @@ class TocViewModel(
     fun onIntent(intent: TocIntent) {
         when (intent) {
             is TocIntent.LoadBook -> {
+            bookmarkSelectionState.value = BookmarkSelectionState()
                 if (bookUrlFlow.value != intent.bookUrl) {
                     clearSelection()
                     _collapsedVolumes.value = emptySet()
@@ -621,7 +657,22 @@ class TocViewModel(
             is TocIntent.SaveTocRegex -> saveTocRegex(intent.regex)
             is TocIntent.ExportBookmarks -> exportCurrentBookBookmarks(intent.uri, intent.isMarkdown)
             is TocIntent.UpdateBookmark -> updateBookmark(intent.bookmark)
-            is TocIntent.DeleteBookmark -> deleteBookmark(intent.bookmark)
+            is TocIntent.DeleteBookmark -> deleteBookmarks(listOf(intent.bookmark))
+            is TocIntent.EnterBookmarkSelection -> bookmarkSelectionState.update {
+                it.copy(active = true, ids = it.ids + intent.id)
+            }
+
+            is TocIntent.ToggleBookmarkSelection -> bookmarkSelectionState.update {
+                it.copy(
+                    active = true,
+                    ids = if (intent.id in it.ids) it.ids - intent.id else it.ids + intent.id,
+                )
+            }
+
+            TocIntent.ClearBookmarkSelection -> bookmarkSelectionState.value =
+                BookmarkSelectionState()
+
+            TocIntent.DeleteSelectedBookmarks -> deleteSelectedBookmarks()
             is TocIntent.DownloadChapter -> downloadChapter(intent.id)
             TocIntent.DownloadAll -> downloadAll()
             TocIntent.DownloadSelected -> downloadSelected()
@@ -811,8 +862,20 @@ class TocViewModel(
     fun updateBookmark(bookmark: Bookmark) =
         viewModelScope.launch(Dispatchers.IO) { bookmarkRepository.save(bookmark) }
 
-    fun deleteBookmark(bookmark: Bookmark) =
-        viewModelScope.launch(Dispatchers.IO) { bookmarkRepository.delete(bookmark) }
+    /** 单条/批量删除共用一条路径：选中集合只是长度不同的同一操作。 */
+    fun deleteBookmarks(bookmarks: List<Bookmark>) {
+        if (bookmarks.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) { bookmarkRepository.deleteAll(bookmarks) }
+    }
+
+    /** 删除当前选中的书签（按未过滤清单解析，搜索过滤不会造成漏删）。 */
+    private fun deleteSelectedBookmarks() {
+        val ids = bookmarkSelectionState.value.ids
+        if (ids.isEmpty()) return
+        val targets = resolveSelectedBookmarks(rawBookmarkItems.value, ids).map { it.raw }
+        bookmarkSelectionState.value = BookmarkSelectionState()
+        deleteBookmarks(targets)
+    }
 
     fun addBookmarksForSelected() = viewModelScope.launch(Dispatchers.IO) {
         val book = bookState.value ?: return@launch

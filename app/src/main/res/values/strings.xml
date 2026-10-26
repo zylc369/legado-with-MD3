@@ -387,7 +387,6 @@
     <string name="bookmark_add">Add to Bookmarks</string>
     <string name="bookmark_added">Bookmark added</string>
     <string name="bookmark_removed">Bookmark removed</string>
-    <string name="bookmark_jump_to_position">Go to bookmark</string>
     <string name="swipe_to_add_bookmark">Swipe down to add bookmark</string>
     <string name="bookmark_swipe_release_to_add">Release to add bookmark</string>
     <string name="bookmark_swipe_release_to_remove">Release to remove bookmark</string>
@@ -3445,4 +3444,5 @@
     <string name="read_aloud_engine_detail_cloud">cloud synthesis</string>
     <string name="read_aloud_engine_load_failed">Engine catalog failed to load</string>
     <string name="read_aloud_engine_load_failed_summary">Tap to retry</string>
+    <string name="delete_selected_count">Delete selected (%1$d)</string>
 </resources>
