@@ -20,7 +20,6 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.HighlightTagRule
 import io.legado.app.data.entities.TagGroupRule
 import io.legado.app.domain.gateway.BookExportSettingsGateway
-import io.legado.app.domain.gateway.ImportBookSettingsGateway
 import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.domain.gateway.ReadSettingsGateway
 import io.legado.app.exception.NoStackTraceException
@@ -50,7 +49,6 @@ import kotlin.math.min
 import kotlin.time.Clock
 
 private val otherGateway by lazy { GlobalContext.get().get<OtherSettingsGateway>() }
-private val importBookGateway by lazy { GlobalContext.get().get<ImportBookSettingsGateway>() }
 private val readGateway by lazy { GlobalContext.get().get<ReadSettingsGateway>() }
 private val exportGateway by lazy { GlobalContext.get().get<BookExportSettingsGateway>() }
 
@@ -197,7 +195,6 @@ fun Book.getLocalUri(): Uri {
     }
     //不同的设备书籍保存路径可能不一样, uri无效时尝试寻找当前保存路径下的文件
     val defaultBookDir = otherGateway.currentSettings.defaultBookTreeUri
-    val importBookDir = importBookGateway.currentSettings.importBookPath
 
     // 查找书籍保存目录
     if (!defaultBookDir.isNullOrBlank()) {
@@ -228,37 +225,6 @@ fun Book.getLocalUri(): Uri {
                 localUriCache[newBookUrl] = fileDoc.uri
                 return fileDoc.uri
             }
-        }
-    }
-
-    // 查找添加本地选择的目录
-    if (!importBookDir.isNullOrBlank() && defaultBookDir != importBookDir) {
-        val treeUri = if (importBookDir.isUri()) {
-            importBookDir.toUri()
-        } else {
-            Uri.fromFile(File(importBookDir))
-        }
-        val treeFileDoc = FileDoc.fromUri(treeUri, true)
-        val fileDoc = treeFileDoc.find(originName, 5, 100)
-        if (fileDoc != null) {
-            val newBookUrl = fileDoc.toString()
-            val oldBook = copy()
-            if (!oldBook.canSafelyRebindTo(newBookUrl)) {
-                return fileDoc.uri
-            }
-
-            appDb.runInTransaction {
-                if (oldBook.bookUrl == newBookUrl) {
-                    save()
-                } else {
-                    val newBook = oldBook.copy(bookUrl = newBookUrl)
-                    appDb.bookDao.replace(oldBook, newBook)
-                    BookHelp.updateCacheFolder(oldBook, newBook)
-                    this.bookUrl = newBookUrl
-                }
-            }
-            localUriCache[newBookUrl] = fileDoc.uri
-            return fileDoc.uri
         }
     }
 

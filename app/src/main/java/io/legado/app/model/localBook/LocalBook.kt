@@ -43,6 +43,7 @@ import io.legado.app.lib.webdav.WebDav
 import io.legado.app.lib.webdav.WebDavException
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.analyzeRule.CustomUrl
+import io.legado.app.utils.ArchiveKind
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.FileDoc
 import io.legado.app.utils.FileUtils
@@ -318,10 +319,18 @@ object LocalBook {
         }
     }
 
+    /**
+     * 压缩包导入的私有解压目录（外部应用专属存储，无需权限，卸载即删除）。
+     * 仅本地导入流程使用；在线导入/换源等仍保存到用户设置的公开保存目录。
+     */
+    val privateImportDir: File
+        get() = File(appCtx.externalFiles, "importBooks")
+
     /* 导入压缩包内的书籍 */
     fun importArchiveFile(
         archiveFileUri: Uri,
         saveFileName: String? = null,
+        privateTargetDir: File? = null,
         filter: ((String) -> Boolean)? = null
     ): List<Book> {
         val archiveFileDoc = FileDoc.fromUri(archiveFileUri, false)
@@ -330,7 +339,12 @@ object LocalBook {
             throw NoStackTraceException(appCtx.getString(R.string.unsupport_archivefile_entry))
         }
         return files.map {
-            saveBookFile(FileInputStream(it), saveFileName ?: it.name).let { uri ->
+            val savedUri = if (privateTargetDir != null) {
+                saveExtractedFile(FileInputStream(it), it.name, privateTargetDir)
+            } else {
+                saveBookFile(FileInputStream(it), saveFileName ?: it.name)
+            }
+            savedUri.let { uri ->
                 importFile(uri).apply {
                     //附加压缩包名称 以便解压文件被删后再解压
                     origin = "${BookType.localTag}::${archiveFileDoc.name}"
@@ -343,15 +357,13 @@ object LocalBook {
     }
 
     /* 批量导入 支持自动导入压缩包的支持书籍 */
-    fun importFiles(uri: Uri): List<Book> {
+    fun importFiles(uri: Uri, privateTargetDir: File? = null): List<Book> {
         val books = mutableListOf<Book>()
         val fileDoc = FileDoc.fromUri(uri, false)
         if (ArchiveUtils.isArchive(fileDoc.name)) {
             val entries = ArchiveUtils.getArchiveFilesName(fileDoc)
-            val isComicArchive = entries.any { entry ->
-                entry.substringAfterLast('.', "").lowercase() in
-                        setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "bmp")
-            }
+            val isComicArchive =
+                ArchiveUtils.archiveKind(fileDoc.name, entries) == ArchiveKind.ComicArchive
             if (isComicArchive) {
                 books += importFile(uri).apply {
                     type = BookType.local or BookType.image or BookType.archive
@@ -360,12 +372,30 @@ object LocalBook {
                     save()
                 }
             } else {
-                books.addAll(importArchiveFile(uri) { it.matches(AppPattern.bookFileRegex) })
+                books.addAll(
+                    importArchiveFile(
+                        uri,
+                        filter = { it.matches(AppPattern.bookFileRegex) },
+                        privateTargetDir = privateTargetDir
+                    )
+                )
             }
         } else {
             books.add(importFile(uri))
         }
         return books
+    }
+
+    /** 解压出的文件落到私有目录（同名覆盖），不进入用户可见存储。 */
+    private fun saveExtractedFile(inputStream: InputStream, fileName: String, dir: File): Uri {
+        inputStream.use {
+            dir.mkdirs()
+            val file = File(dir, fileName)
+            FileOutputStream(file).use { oStream ->
+                it.copyTo(oStream)
+            }
+            return Uri.fromFile(file)
+        }
     }
 
     fun importFiles(uris: List<Uri>) {

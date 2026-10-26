@@ -5,7 +5,6 @@ import io.legado.app.constant.PreferKey
 import io.legado.app.domain.gateway.ImportBookSettingsGateway
 import io.legado.app.domain.model.settings.ImportBookSettings
 import io.legado.app.help.config.AppConfigStore
-import io.legado.app.help.config.compatDsInt
 import io.legado.app.help.config.compatDsLong
 import io.legado.app.help.config.compatDsString
 import kotlinx.coroutines.flow.Flow
@@ -30,15 +29,11 @@ class ImportBookSettingsRepository : ImportBookSettingsGateway {
 }
 
 internal fun Preferences.toImportBookSettings() = ImportBookSettings(
-    importBookPath = compatDsString(PreferKey.importBookPath),
     bookImportFileName = compatDsString(PreferKey.bookImportFileName),
-    localBookImportSort = compatDsInt(PreferKey.localBookImportSort) ?: 0,
     remoteServerId = compatDsLong(PreferKey.remoteServerId) ?: 0L,
 )
 
 internal fun ImportBookSettings.toPrefMap(): Map<String, Any?> = mapOf(
-    PreferKey.importBookPath to importBookPath,
     PreferKey.bookImportFileName to bookImportFileName,
-    PreferKey.localBookImportSort to localBookImportSort,
     PreferKey.remoteServerId to remoteServerId,
 )

@@ -65,7 +65,7 @@ import io.legado.app.ui.book.cache.manage.BookCacheManageRouteScreen
 import io.legado.app.ui.book.explore.ExploreShowIntent
 import io.legado.app.ui.book.explore.ExploreShowRouteScreen
 import io.legado.app.ui.book.explore.ExploreShowViewModel
-import io.legado.app.ui.book.import.local.ImportBookRouteScreen
+import io.legado.app.feature.bookimport.LocalImportRouteScreen
 import io.legado.app.ui.book.import.remote.RemoteBookRouteScreen
 import io.legado.app.ui.book.info.BookInfoRouteScreen
 import io.legado.app.ui.book.info.BookInfoViewModel
@@ -696,7 +696,7 @@ fun MainActivity.mainEntryProvider(
     }
 
     entry<MainRouteImportLocal> {
-        ImportBookRouteScreen(
+        LocalImportRouteScreen(
             onBackClick = { onNavigateBack() }
         )
     }

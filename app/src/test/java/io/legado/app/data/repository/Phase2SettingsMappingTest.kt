@@ -59,9 +59,7 @@ class Phase2SettingsMappingTest {
     @Test
     fun `导入书籍设置写读映射往返恒等并支持删除 nullable 键`() {
         val settings = ImportBookSettings(
-            importBookPath = "content://books",
             bookImportFileName = "name-rule",
-            localBookImportSort = 2,
             remoteServerId = 42L,
         )
         assertRoundTrips(
@@ -71,12 +69,12 @@ class Phase2SettingsMappingTest {
         )
 
         assertEquals(
-            mapOf(PreferKey.importBookPath to null),
+            mapOf(PreferKey.bookImportFileName to null),
             captureAtomicUpdateValues(
                 current = settings,
                 read = Preferences::toImportBookSettings,
                 toPrefMap = ImportBookSettings::toPrefMap,
-                transform = { it.copy(importBookPath = null) },
+                transform = { it.copy(bookImportFileName = null) },
             ),
         )
     }

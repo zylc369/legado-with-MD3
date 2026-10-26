@@ -95,6 +95,23 @@ object ArchiveUtils {
         return archiveFileRegex.matches(name)
     }
 
+    private val comicImageExtensions =
+        setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "bmp")
+
+    /**
+     * 依据压缩包内条目判断导入类型：
+     * - [ArchiveKind.NotArchive] 非压缩包；
+     * - [ArchiveKind.ComicArchive] 任一条目为图片 → 整包按漫画直接导入，不需要解压保存目录；
+     * - [ArchiveKind.BookArchive] 其余压缩包 → 需要解压到保存目录后导入书籍条目。
+     */
+    fun archiveKind(name: String, entries: List<String>): ArchiveKind {
+        if (!isArchive(name)) return ArchiveKind.NotArchive
+        val isComic = entries.any {
+            it.substringAfterLast('.', "").lowercase() in comicImageExtensions
+        }
+        return if (isComic) ArchiveKind.ComicArchive else ArchiveKind.BookArchive
+    }
+
     private fun checkAchieve(name: String) {
         if (!isArchive(name))
             throw IllegalArgumentException("Unexpected file suffix: Only 7z rar zip Accepted")

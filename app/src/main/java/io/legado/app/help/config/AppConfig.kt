@@ -97,7 +97,6 @@ object AppConfig {
     val showStatusBar get() = shell.showStatusBar
     val autoRefreshBook get() = other.autoRefresh
     val threadCount get() = cache.threadCount
-    val importBookPath get() = importBook.importBookPath
     val chineseConverterType get() = read.chineseConverterType
     val enableCustomExport get() = export.enableCustomExport
     val exportType get() = export.exportType

@@ -28,6 +28,9 @@ import io.legado.app.data.repository.BookExportSettingsRepository
 import io.legado.app.data.repository.BookGroupMutationRepository
 import io.legado.app.data.repository.BookGroupRepository
 import io.legado.app.data.repository.BookImportRepository
+import io.legado.app.data.repository.DefaultImportFolderScanner
+import io.legado.app.data.repository.ImportFolderScanner
+import io.legado.app.data.repository.LocalImportGatewayImpl
 import io.legado.app.data.repository.BookKnowledgeRepository
 import io.legado.app.data.repository.BookMarkingRepository
 import io.legado.app.data.repository.BookRepository
@@ -148,6 +151,8 @@ import io.legado.app.domain.gateway.HttpTtsEngineGateway
 import io.legado.app.domain.gateway.ImportBookSettingsGateway
 import io.legado.app.domain.gateway.LabSettingsGateway
 import io.legado.app.domain.gateway.LocalBookGateway
+import io.legado.app.domain.gateway.LocalBookImportGateway
+import io.legado.app.domain.gateway.LocalImportGateway
 import io.legado.app.domain.gateway.LocalPasswordGateway
 import io.legado.app.domain.gateway.CustomTtsCatalogGateway
 import io.legado.app.feature.customtts.CustomTtsViewModel
@@ -249,7 +254,7 @@ import io.legado.app.ui.book.changesource.ChangeBookSourceComposeViewModel
 import io.legado.app.ui.book.changesource.ChangeChapterSourceViewModel
 import io.legado.app.ui.book.explore.ExploreShowViewModel
 import io.legado.app.ui.book.group.GroupViewModel
-import io.legado.app.ui.book.import.local.ImportBookViewModel
+import io.legado.app.feature.bookimport.LocalImportViewModel
 import io.legado.app.ui.book.import.remote.RemoteBookViewModel
 import io.legado.app.ui.book.import.remote.ServerConfigViewModel
 import io.legado.app.ui.book.import.remote.ServersViewModel
@@ -354,6 +359,9 @@ val appModule = module {
     single<HomeDashboardGateway> { HomeDashboardRepository(get(), get()) }
     singleOf(::BookRepository)
     singleOf(::BookImportRepository)
+    single<LocalImportGateway> { LocalImportGatewayImpl() }
+    single<LocalBookImportGateway> { get<BookImportRepository>() }
+    single<ImportFolderScanner> { DefaultImportFolderScanner() }
     singleOf(::BookGroupRepository)
     singleOf(::BookmarkRepository)
     singleOf(::BookCacheManageRepository)
@@ -656,7 +664,16 @@ val appModule = module {
         )
     }
     viewModelOf(::TocViewModel)
-    viewModelOf(::ImportBookViewModel)
+    // viewModelOf 会尝试从容器解析全部构造参数（含默认值的 CoroutineDispatcher），
+    // 因此带测试缝默认参数的 VM 必须显式注册，只传容器内定义。
+    viewModel {
+        io.legado.app.feature.bookimport.LocalImportViewModel(
+            localImportGateway = get(),
+            bookImportGateway = get(),
+            scanner = get(),
+            importBookSettingsGateway = get(),
+        )
+    }
     viewModelOf(::RemoteBookViewModel)
     viewModelOf(::ServerConfigViewModel)
     viewModelOf(::ServersViewModel)
