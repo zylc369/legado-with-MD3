@@ -130,6 +130,7 @@ import io.legado.app.ui.widget.components.AppPullToRefresh
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
+import io.legado.app.ui.widget.components.checkBox.AppCheckbox
 import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.card.GlassCard
 import io.legado.app.ui.widget.components.card.HighlightTagRow
@@ -251,6 +252,45 @@ fun BookInfoScreen(
                     usesDefaultCover = true
                 }
             },
+        )
+    }
+
+    // 删除确认框：勾选状态提升到页面层，确认时读取的是同一份值
+    var deleteOriginalChoice by rememberSaveable(state.showDeleteBookConfirm) {
+        mutableStateOf(state.deleteOriginal)
+    }
+    if (state.showDeleteBookConfirm) {
+        AppAlertDialog(
+            show = true,
+            onDismissRequest = { onIntent(BookInfoIntent.DismissDeleteBookConfirm) },
+            title = stringResource(R.string.draw),
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppText(text = stringResource(R.string.sure_del))
+                    if (state.book?.isLocal == true) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppCheckbox(
+                                checked = deleteOriginalChoice,
+                                onCheckedChange = { deleteOriginalChoice = it }
+                            )
+                            AppText(
+                                text = stringResource(R.string.delete_book_file),
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmText = stringResource(android.R.string.ok),
+            onConfirm = {
+                onIntent(BookInfoIntent.ConfirmDeleteBook(deleteOriginalChoice))
+            },
+            dismissText = stringResource(android.R.string.cancel),
+            onDismiss = { onIntent(BookInfoIntent.DismissDeleteBookConfirm) },
         )
     }
 
@@ -1086,6 +1126,12 @@ private fun BookInfoOverflowMenu(
             RoundDropdownMenuItem(
                 text = stringResource(R.string.copy_toc_url),
                 onClick = { onMenuAction(BookInfoMenuAction.CopyTocUrl) }
+            )
+        }
+        if (state.inBookshelf) {
+            RoundDropdownMenuItem(
+                text = stringResource(R.string.delete_book),
+                onClick = { onMenuAction(BookInfoMenuAction.DeleteBook) }
             )
         }
         RoundDropdownMenuItem(

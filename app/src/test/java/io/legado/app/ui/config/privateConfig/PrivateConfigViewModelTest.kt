@@ -2,13 +2,10 @@ package io.legado.app.ui.config.privateConfig
 
 import android.app.Application
 import android.os.Looper
-import io.legado.app.domain.gateway.LocalPasswordGateway
 import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.domain.gateway.PrivateAccessGateway
 import io.legado.app.domain.model.PrivateAccessState
 import io.legado.app.domain.model.PrivateBiometricStatus
-import io.legado.app.domain.model.PrivateUnlockScope
-import io.legado.app.domain.model.PrivateUnlockTarget
 import io.legado.app.domain.model.settings.OtherSettings
 import io.legado.app.domain.model.settings.PrivateAccessSettings
 import kotlinx.coroutines.CoroutineStart
@@ -40,41 +37,28 @@ class PrivateConfigViewModelTest {
 
     @Test
     fun savePassword_writesThroughLocalPasswordGateway() = runBlocking {
-        val passwordGateway = FakeLocalPasswordGateway()
-        val viewModel = createViewModel(localPasswordGateway = passwordGateway)
+        val access = FakePrivateAccessGateway()
+        val viewModel = createViewModel(privateAccessGateway = access)
         idleMainLooper()
 
         viewModel.onIntent(PrivateConfigIntent.SavePassword("secret"))
         idleMainLooper()
 
-        assertEquals("secret", passwordGateway.savedPassword)
+        assertEquals("secret", access.savedPassword)
         assertFalse(viewModel.uiState.value.showPasswordDialog)
     }
 
     @Test
-    fun verifyTimingToggles_persistThroughPrivateAccessGateway() = runBlocking {
+    fun backgroundGraceSeconds_persistThroughPrivateAccessGateway() = runBlocking {
         val accessGateway = FakePrivateAccessGateway()
         val viewModel = createViewModel(privateAccessGateway = accessGateway)
         idleMainLooper()
 
-        viewModel.onIntent(PrivateConfigIntent.SetVerifyOnEnterGroup(false))
+        viewModel.onIntent(PrivateConfigIntent.SetBackgroundGraceSeconds(60))
         idleMainLooper()
 
-        assertFalse(accessGateway.settingsValue.verifyOnEnterGroup)
-        assertFalse(viewModel.uiState.value.settings.verifyOnEnterGroup)
-    }
-
-    @Test
-    fun unlockScope_persistsEveryTime() = runBlocking {
-        val accessGateway = FakePrivateAccessGateway()
-        val viewModel = createViewModel(privateAccessGateway = accessGateway)
-        idleMainLooper()
-
-        viewModel.onIntent(PrivateConfigIntent.SetUnlockScope(PrivateUnlockScope.EveryTime))
-        idleMainLooper()
-
-        assertEquals(PrivateUnlockScope.EveryTime, accessGateway.settingsValue.unlockScope)
-        assertEquals(PrivateUnlockScope.EveryTime, viewModel.uiState.value.settings.unlockScope)
+        assertEquals(60, accessGateway.settingsValue.backgroundGraceSeconds)
+        assertEquals(60, viewModel.uiState.value.settings.backgroundGraceSeconds)
     }
 
     @Test
@@ -159,11 +143,9 @@ class PrivateConfigViewModelTest {
 
     private fun createViewModel(
         privateAccessGateway: FakePrivateAccessGateway = FakePrivateAccessGateway(),
-        localPasswordGateway: FakeLocalPasswordGateway = FakeLocalPasswordGateway(),
         otherSettingsGateway: FakeOtherSettingsGateway = FakeOtherSettingsGateway(),
     ) = PrivateConfigViewModel(
         privateAccessGateway = privateAccessGateway,
-        localPasswordGateway = localPasswordGateway,
         otherSettingsGateway = otherSettingsGateway,
     )
 
@@ -189,6 +171,9 @@ class PrivateConfigViewModelTest {
         var disabled = false
             private set
 
+        var savedPassword: String? = null
+            private set
+
         val settingsValue: PrivateAccessSettings get() = settingsFlow.value
 
         override val state: Flow<PrivateAccessState> get() = accessFlow
@@ -198,20 +183,20 @@ class PrivateConfigViewModelTest {
             settingsFlow.value = transform(settingsFlow.value)
         }
 
-        override fun isGrantedNow(bookUrl: String, group: Long): Boolean =
-            accessFlow.value.isTargetGranted(bookUrl, group)
+        override suspend fun verifyPasswordOnly(password: String): Boolean = true
 
-        override suspend fun verifyPasswordOnly(password: String): Boolean =
-            password.isNotEmpty()
+        override suspend fun unlockSession(password: String): Boolean = password.isNotEmpty()
 
-        override fun onAppBackground() = Unit
+        override fun isSessionUnlockedNow(): Boolean = accessFlow.value.isSessionUnlocked
 
-        override suspend fun verifyPassword(
-            password: String,
-            target: PrivateUnlockTarget?,
-        ) = true
+        override suspend fun setPassword(password: String?) {
+            savedPassword = password
+            if (!password.isNullOrEmpty()) {
+                accessFlow.value = accessFlow.value.copy(hasPassword = true)
+            }
+        }
 
-        override fun revoke(target: PrivateUnlockTarget) = Unit
+        override suspend fun resetPassword() = Unit
 
         override suspend fun disableBiometricShortcut() {
             disabled = true
@@ -232,14 +217,6 @@ class PrivateConfigViewModelTest {
 
         override fun refreshBiometricStatus() = Unit
         override fun lock() = Unit
-    }
-
-    private class FakeLocalPasswordGateway : LocalPasswordGateway {
-        var savedPassword: String? = null
-
-        override suspend fun setPassword(password: String?) {
-            savedPassword = password
-        }
     }
 
     private class FakeOtherSettingsGateway : OtherSettingsGateway {

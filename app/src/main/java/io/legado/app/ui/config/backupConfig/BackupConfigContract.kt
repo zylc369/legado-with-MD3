@@ -85,6 +85,30 @@ sealed interface BackupConfigIntent {
     data class RestoreNetwork(val name: String) : BackupConfigIntent
     data object ConfirmLocalRestoreFallback : BackupConfigIntent
     data object RequestImportOldData : BackupConfigIntent
+
+    /** 未设置该地址的备份密码：设置后继续备份 */
+    data class ConfirmBackupPassword(
+        val password: String,
+        val runMode: String,
+        val runPath: String,
+        val addressKey: String,
+    ) : BackupConfigIntent
+
+    /** 不设置密码，直接备份（敏感信息只有弱保护） */
+    data class SkipBackupPassword(
+        val runMode: String,
+        val runPath: String,
+    ) : BackupConfigIntent
+
+    /** 恢复前输入密码（本地备份无法确定来源地址，必须询问） */
+    data class ConfirmRestorePassword(
+        val password: String,
+        val mode: String,
+        val target: String,
+        val addressKey: String?,
+    ) : BackupConfigIntent
+
+    data object CancelRestorePassword : BackupConfigIntent
 }
 
 sealed interface BackupConfigEffect {
@@ -93,5 +117,20 @@ sealed interface BackupConfigEffect {
     data object LaunchRestoreFilePicker : BackupConfigEffect
     data object LaunchImportOldDataPicker : BackupConfigEffect
     data class RequestStoragePermission(val path: String, val mode: String) : BackupConfigEffect
+
+    /** 备份前提醒设置备份密码（用于加密备份中的账号等敏感信息） */
+    data class RequestBackupPassword(
+        val mode: String,
+        val path: String,
+        val addressKey: String,
+    ) : BackupConfigEffect
+
+    /** 恢复前询问密码 */
+    data class RequestRestorePassword(
+        val mode: String,
+        val target: String,
+        val addressKey: String?,
+        val suggested: String?,
+    ) : BackupConfigEffect
     data class ShowMessage(@StringRes val messageRes: Int, val argument: String? = null) : BackupConfigEffect
 }

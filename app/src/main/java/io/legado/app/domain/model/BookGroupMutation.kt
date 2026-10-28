@@ -4,7 +4,6 @@ data class NewBookGroup(
     val groupName: String,
     val bookSort: Int,
     val enableRefresh: Boolean,
-    val isPrivate: Boolean,
     val cover: String?,
     val pattern: String?,
 )
@@ -17,7 +16,6 @@ data class BookGroupUpdate(
     val enableRefresh: Boolean,
     val show: Boolean,
     val bookSort: Int,
-    val isPrivate: Boolean,
 )
 
 data class TagGroupRuleUpdate(

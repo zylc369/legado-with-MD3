@@ -20,11 +20,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
 import io.legado.app.domain.model.PrivateBiometricStatus
-import io.legado.app.domain.model.PrivateUnlockScope
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
+import io.legado.app.ui.widget.components.PasswordTextField
 import io.legado.app.ui.widget.components.SplicedColumnGroup
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.settingItem.ClickableSettingItem
@@ -64,15 +64,6 @@ fun PrivateConfigScreen(
         ) {
             item {
                 SplicedColumnGroup(title = stringResource(R.string.private_credential_title)) {
-                    SwitchSettingItem(
-                        title = stringResource(R.string.private_feature_enabled),
-                        description = stringResource(R.string.private_feature_enabled_summary),
-                        checked = state.settings.enabled,
-                        onCheckedChange = {
-                            onIntent(PrivateConfigIntent.SetPrivateEnabled(it))
-                        }
-                    )
-
                     ClickableSettingItem(
                         title = stringResource(R.string.set_local_password),
                         description = stringResource(
@@ -106,75 +97,27 @@ fun PrivateConfigScreen(
             }
 
             item {
-                SplicedColumnGroup(title = stringResource(R.string.private_verify_timing_title)) {
-                    SwitchSettingItem(
-                        title = stringResource(R.string.private_verify_on_enter_group),
-                        description = stringResource(R.string.private_verify_on_enter_group_summary),
-                        checked = state.settings.verifyOnEnterGroup,
-                        enabled = state.hasLocalPassword,
-                        onCheckedChange = {
-                            onIntent(PrivateConfigIntent.SetVerifyOnEnterGroup(it))
-                        }
-                    )
-                    SwitchSettingItem(
-                        title = stringResource(R.string.private_verify_on_open_book),
-                        description = stringResource(R.string.private_verify_on_open_book_summary),
-                        checked = state.settings.verifyOnOpenBook,
-                        enabled = state.hasLocalPassword,
-                        onCheckedChange = {
-                            onIntent(PrivateConfigIntent.SetVerifyOnOpenBook(it))
-                        }
-                    )
-                    SwitchSettingItem(
-                        title = stringResource(R.string.private_verify_on_app_start),
-                        description = stringResource(R.string.private_verify_on_app_start_summary),
-                        checked = state.settings.verifyOnAppStart,
-                        enabled = state.hasLocalPassword,
-                        onCheckedChange = {
-                            onIntent(PrivateConfigIntent.SetVerifyOnAppStart(it))
-                        }
-                    )
+                SplicedColumnGroup(title = stringResource(R.string.private_mode_title)) {
                     DropdownListSettingItem(
-                        title = stringResource(R.string.private_unlock_scope_title),
-                        description = stringResource(R.string.private_unlock_scope_summary),
-                        selectedValue = state.settings.unlockScope.name,
+                        title = stringResource(R.string.private_background_grace_title),
+                        description = stringResource(R.string.private_background_grace_summary),
+                        selectedValue = state.settings.backgroundGraceSeconds.toString(),
                         displayEntries = arrayOf(
-                            stringResource(R.string.private_unlock_scope_every_time),
-                            stringResource(R.string.private_unlock_scope_app_session),
-                            stringResource(R.string.private_unlock_scope_until_background)
+                            stringResource(R.string.private_background_grace_immediately),
+                            stringResource(R.string.private_background_grace_seconds, 30),
+                            stringResource(R.string.private_background_grace_seconds, 60),
+                            stringResource(R.string.private_background_grace_minutes, 2),
+                            stringResource(R.string.private_background_grace_minutes, 3),
+                            stringResource(R.string.private_background_grace_minutes, 5),
                         ),
-                        entryValues = arrayOf(
-                            PrivateUnlockScope.EveryTime.name,
-                            PrivateUnlockScope.AppSession.name,
-                            PrivateUnlockScope.UntilBackground.name
-                        ),
+                        // 值统一按秒存；秒/分钟只是给人看的
+                        entryValues = arrayOf("0", "30", "60", "120", "180", "300"),
                         onValueChange = { value ->
-                            PrivateUnlockScope.entries.firstOrNull { it.name == value }
-                                ?.let { onIntent(PrivateConfigIntent.SetUnlockScope(it)) }
+                            value.toIntOrNull()?.let {
+                                onIntent(PrivateConfigIntent.SetBackgroundGraceSeconds(it))
+                            }
                         }
                     )
-                    // 只在"离开应用前有效"下才出现：其它频率下这个值没有意义
-                    if (state.settings.unlockScope == PrivateUnlockScope.UntilBackground) {
-                        DropdownListSettingItem(
-                            title = stringResource(R.string.private_background_grace_title),
-                            description = stringResource(R.string.private_background_grace_summary),
-                            selectedValue = state.settings.backgroundGraceSeconds.toString(),
-                            displayEntries = arrayOf(
-                                stringResource(R.string.private_background_grace_immediately),
-                                stringResource(R.string.private_background_grace_seconds, 30),
-                                stringResource(R.string.private_background_grace_minutes, 2),
-                                stringResource(R.string.private_background_grace_minutes, 3),
-                                stringResource(R.string.private_background_grace_minutes, 5),
-                            ),
-                            // 值统一按秒存；秒/分钟只是给人看的
-                            entryValues = arrayOf("0", "30", "120", "180", "300"),
-                            onValueChange = { value ->
-                                value.toIntOrNull()?.let {
-                                    onIntent(PrivateConfigIntent.SetBackgroundGraceSeconds(it))
-                                }
-                            }
-                        )
-                    }
                 }
             }
 
@@ -222,22 +165,20 @@ fun PrivateConfigScreen(
                     // 已有密码时先要旧密码：本地密码是私密内容的唯一凭据，
                     // 不验旧密码就等于"谁拿到这台手机，谁就能把锁换成自己的"
                     if (state.hasLocalPassword) {
-                        AppTextField(
+                        PasswordTextField(
                             value = currentPassword,
                             onValueChange = { currentPassword = it },
                             label = stringResource(R.string.private_current_password_title),
                             backgroundColor = LegadoTheme.colorScheme.surface,
-                            visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = passwordKeyboard,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    AppTextField(
+                    PasswordTextField(
                         value = password,
                         onValueChange = { password = it },
                         label = stringResource(R.string.private_unlock_password_title),
                         backgroundColor = LegadoTheme.colorScheme.surface,
-                        visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = passwordKeyboard,
                         modifier = Modifier.fillMaxWidth(),
                     )

@@ -37,10 +37,9 @@ import io.legado.app.domain.model.BookMatchKey
 import io.legado.app.domain.model.BookshelfConflict
 import io.legado.app.domain.model.ConflictBookSummary
 import io.legado.app.domain.model.PrivateAccessState
-import io.legado.app.domain.model.PrivateUnlockTarget
 import io.legado.app.domain.model.settings.CoverSettings
 import io.legado.app.domain.model.settings.OtherSettings
-import io.legado.app.domain.model.settings.PrivateAccessSettings
+import io.legado.app.domain.usecase.DeleteBooksUseCase
 import io.legado.app.domain.model.settings.ThemeSettings
 import io.legado.app.domain.usecase.BookTocUnavailableException
 import io.legado.app.domain.usecase.ChangeBookSourceUseCase
@@ -127,6 +126,7 @@ class BookInfoViewModel(
     private val otherSettingsGateway: OtherSettingsGateway,
     private val privateAccessGateway: PrivateAccessGateway,
     private val privateContentGateway: PrivateContentGateway,
+    private val deleteBooksUseCase: DeleteBooksUseCase,
 ) : BaseViewModel(application) {
 
     val allGroups = bookGroupRepository.flowSelect().map { it.toImmutableList() }
@@ -149,10 +149,6 @@ class BookInfoViewModel(
         privateAccessGateway.state
             .stateIn(viewModelScope, SharingStarted.Eagerly, PrivateAccessState())
 
-    private val privateAccessSettings: StateFlow<PrivateAccessSettings> =
-        privateAccessGateway.settings
-            .stateIn(viewModelScope, SharingStarted.Eagerly, PrivateAccessSettings())
-
     // 设置类字段始终从各自 gateway（唯一 SSOT）派生叠加，重置屏幕状态无法影响它们。
     val uiState: StateFlow<BookInfoUiState> = combine(
         _screenState,
@@ -166,13 +162,10 @@ class BookInfoViewModel(
     }.combine(privateLockedByEntryFlow) { screen, lockedByEntry ->
         screen.copy(privateLockedByEntry = lockedByEntry)
     }.combine(privateAccessState) { screen, privateAccess ->
-        screen.copy(privateAccess = privateAccess)
-    }.combine(privateAccessSettings) { screen, privateSettings ->
-        val group = screen.book?.group ?: 0L
         screen.copy(
-            privateLocked = privateSettings.verifyOnOpenBook &&
-                    screen.privateLockedByEntry &&
-                    !screen.privateAccess.isTargetGranted(screen.book?.bookUrl, group)
+            privateAccess = privateAccess,
+            privateLocked = screen.privateLockedByEntry &&
+                    !privateAccess.isSessionUnlocked
         )
     }.stateIn(
         scope = viewModelScope,
@@ -223,10 +216,6 @@ class BookInfoViewModel(
         }
 
     override fun onCleared() {
-        // "每次验证"频率下离开详情页即撤销授权，下次进来要重新验证
-        currentBook?.bookUrl?.let {
-            privateAccessGateway.revoke(PrivateUnlockTarget.Book(it))
-        }
         super.onCleared()
     }
 
@@ -266,9 +255,8 @@ class BookInfoViewModel(
 
     private fun submitPrivatePassword(password: String) {
         if (password.isEmpty()) return
-        val target = currentBook?.bookUrl?.let { PrivateUnlockTarget.Book(it) }
         viewModelScope.launch {
-            if (privateAccessGateway.verifyPassword(password, target)) {
+            if (privateAccessGateway.unlockSession(password)) {
                 _screenState.update { it.copy(showPrivatePasswordDialog = false) }
             } else {
                 showMessage(context.getString(R.string.private_unlock_password_error))
@@ -482,6 +470,17 @@ class BookInfoViewModel(
             }
 
             is BookInfoIntent.OpenShelfDuplicate -> openShelfDuplicate(intent.summary)
+
+            BookInfoIntent.ShowDeleteBookConfirm ->
+                _screenState.update { it.copy(showDeleteBookConfirm = true) }
+
+            BookInfoIntent.DismissDeleteBookConfirm ->
+                _screenState.update { it.copy(showDeleteBookConfirm = false) }
+
+            is BookInfoIntent.ConfirmDeleteBook -> {
+                _screenState.update { it.copy(showDeleteBookConfirm = false) }
+                deleteBook(intent.deleteOriginal)
+            }
 
             is BookInfoIntent.ShelfDeleteConfirm -> {
                 dismissSheet()
@@ -1087,12 +1086,9 @@ class BookInfoViewModel(
     fun delBook(deleteOriginal: Boolean = false, success: (() -> Unit)? = null) {
         val book = currentBook ?: return
         execute {
+            deleteBooksUseCase.execute(setOf(book.bookUrl), deleteOriginal)
             inBookshelf = false
             invalidateShelfDuplicates()
-            if (book.isLocal) {
-                LocalBook.deleteBook(book, deleteOriginal)
-            }
-            book.delete()
         }.onSuccess {
             success?.invoke()
         }
@@ -1465,10 +1461,11 @@ class BookInfoViewModel(
         }
     }
     private fun deleteBook(deleteOriginal: Boolean) {
-        currentBook?.let { book ->
+        currentBook?.let { _ ->
             LocalConfig.deleteBookOriginal = deleteOriginal
             _screenState.update { it.copy(deleteOriginal = deleteOriginal) }
-            SourceCallBack.callBackBook(SourceCallBack.DEL_BOOK_SHELF, bookSource, book)
+            // 书源回调（DEL_BOOK_SHELF）与章节/书目录清理都在 DeleteBooksUseCase 内，
+            // 与书架管理共用同一份实现；这里不再重复回调
             delBook(deleteOriginal) {
                 emitEffect(BookInfoEffect.Finish(resultCode = RESULT_OK))
             }
@@ -1605,6 +1602,14 @@ class BookInfoViewModel(
 
             BookInfoMenuAction.ShowLog -> showAppLog()
             BookInfoMenuAction.TogglePrivate -> toggleBookPrivate()
+            BookInfoMenuAction.DeleteBook -> {
+                _screenState.update {
+                    it.copy(
+                        showDeleteBookConfirm = true,
+                        deleteOriginal = LocalConfig.deleteBookOriginal,
+                    )
+                }
+            }
         }
     }
 

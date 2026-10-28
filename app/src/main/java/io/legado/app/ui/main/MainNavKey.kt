@@ -107,6 +107,9 @@ data object MainRouteSettingsThemeManage : MainRoute
 data object MainRouteSettingsPrivate : MainRoute
 
 @Serializable
+data object MainRoutePrivateShelf : MainRoute
+
+@Serializable
 data object MainRouteSettingsLabConfig : MainRoute
 
 @Serializable

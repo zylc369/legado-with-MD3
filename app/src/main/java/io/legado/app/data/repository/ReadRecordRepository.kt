@@ -359,6 +359,11 @@ class ReadRecordRepository(
     suspend fun saveReadSession(newSession: ReadRecordSession) {
         if (!readRecordEnabled.first()) return
         if (newSession.endTime <= newSession.startTime) return
+        // 私密书不产生任何阅读统计（首页/阅读记录/今日目标全部不计数）
+        val isPrivate = withContext(Dispatchers.IO) {
+            database.bookDao.isBookPrivateByName(newSession.bookName, newSession.bookAuthor)
+        }
+        if (isPrivate) return
         val normalizedSession = newSession.copy(
             bookName = ReadRecordIdentity.bookName(newSession.bookName),
             bookAuthor = ReadRecordIdentity.author(newSession.bookAuthor),

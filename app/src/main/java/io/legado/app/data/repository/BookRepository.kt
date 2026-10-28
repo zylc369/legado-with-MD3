@@ -1,6 +1,7 @@
 package io.legado.app.data.repository
 
 import io.legado.app.data.AppDatabase
+import io.legado.app.domain.gateway.PrivateShelfGateway
 import io.legado.app.data.dao.BookChapterDao
 import io.legado.app.data.dao.BookDao
 import io.legado.app.data.dao.GroupBookCount
@@ -16,7 +17,7 @@ class BookRepository(
     private val bookDao: BookDao,
     private val bookChapterDao: BookChapterDao,
     private val appDb: AppDatabase,
-) {
+) : PrivateShelfGateway {
 
     private companion object {
         const val SQLITE_MAX_BIND_PARAMETERS = 900
@@ -84,6 +85,11 @@ class BookRepository(
 
     fun flowBookShelfByGroup(groupId: Long): Flow<List<BookShelfItem>> {
         return bookDao.flowBookShelfByGroup(groupId)
+    }
+
+    /** 私密模式书架：只有单本私密标记的书 */
+    override fun flowPrivateBookShelf(): Flow<List<BookShelfItem>> {
+        return bookDao.flowPrivateBookShelf()
     }
 
     fun flowSystemGroupCounts(): Flow<List<GroupBookCount>> {

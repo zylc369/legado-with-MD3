@@ -67,7 +67,6 @@ class BookGroupMutationRepositoryTest {
                     groupName = "Fantasy",
                     bookSort = -1,
                     enableRefresh = true,
-                    isPrivate = false,
                     cover = null,
                     pattern = "fantasy",
                 )
@@ -164,7 +163,6 @@ class BookGroupMutationRepositoryTest {
                 groupName = "Fantasy",
                 bookSort = -1,
                 enableRefresh = true,
-                isPrivate = false,
                 cover = null,
                 pattern = "fantasy",
             )
@@ -183,7 +181,6 @@ class BookGroupMutationRepositoryTest {
                     groupName = "Broken",
                     bookSort = -1,
                     enableRefresh = true,
-                    isPrivate = false,
                     cover = null,
                     pattern = "[",
                 )

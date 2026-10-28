@@ -1,5 +1,6 @@
 package io.legado.app.data.repository
 
+import io.legado.app.domain.gateway.BackupSettingsGateway
 import io.legado.app.domain.gateway.WebDavBackupGateway
 import io.legado.app.domain.model.WebDavBackup
 import io.legado.app.help.AppWebDav
@@ -8,7 +9,9 @@ import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.withContext
 import splitties.init.appCtx
 
-class WebDavBackupRepository : WebDavBackupGateway {
+class WebDavBackupRepository(
+    private val settingsGateway: BackupSettingsGateway,
+) : WebDavBackupGateway {
 
     override val isJianGuoYun: Boolean
         get() = AppWebDav.isJianGuoYun
@@ -25,9 +28,16 @@ class WebDavBackupRepository : WebDavBackupGateway {
         }
     }
 
-    override suspend fun backup() {
+    override suspend fun backup(password: String?) {
         withContext(IO) {
-            Backup.backupLocked(appCtx, path = null, mode = "webdav")
+            val resolved = password ?: run {
+                val key = BackupPasswordStore.addressKey(
+                    BackupPasswordStore.MODE_WEBDAV,
+                    settingsGateway.currentSettings,
+                )
+                BackupPasswordStore.passwordFor(key) ?: BackupPasswordStore.legacyDefault()
+            }
+            Backup.backupLocked(appCtx, path = null, mode = "webdav", password = resolved)
         }
     }
 
@@ -48,9 +58,16 @@ class WebDavBackupRepository : WebDavBackupGateway {
         }
     }
 
-    override suspend fun restore(name: String) {
+    override suspend fun restore(name: String, password: String?) {
         withContext(IO) {
-            AppWebDav.restoreWebDav(name)
+            val resolved = password ?: run {
+                val key = BackupPasswordStore.addressKey(
+                    BackupPasswordStore.MODE_WEBDAV,
+                    settingsGateway.currentSettings,
+                )
+                BackupPasswordStore.passwordFor(key) ?: BackupPasswordStore.legacyDefault()
+            }
+            AppWebDav.restoreWebDav(name, resolved)
         }
     }
 }

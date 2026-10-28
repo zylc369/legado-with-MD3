@@ -19,9 +19,9 @@ class WebDavBackupUseCase(
         return webDavBackupGateway.test()
     }
 
-    suspend fun backup() {
+    suspend fun backup(password: String? = null) {
         webDavBackupGateway.syncConfig()
-        webDavBackupGateway.backup()
+        webDavBackupGateway.backup(password)
     }
 
     suspend fun getBackupNames(): List<String> {
@@ -34,8 +34,8 @@ class WebDavBackupUseCase(
         return webDavBackupGateway.getLatestBackup()
     }
 
-    suspend fun restore(name: String) {
+    suspend fun restore(name: String, password: String? = null) {
         webDavBackupGateway.syncConfig()
-        webDavBackupGateway.restore(name)
+        webDavBackupGateway.restore(name, password)
     }
 }

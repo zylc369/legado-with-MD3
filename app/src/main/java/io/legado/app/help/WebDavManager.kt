@@ -148,7 +148,7 @@ class WebDavManager(
     }
 
     @Throws(WebDavException::class)
-    suspend fun restoreWebDav(name: String) {
+    suspend fun restoreWebDav(name: String, password: String? = null) {
         val auth = requireAuthorization()
         val rootUrl = buildRootUrl(configFlow.value)
         val webDav = WebDav(rootUrl + name, auth)
@@ -156,7 +156,7 @@ class WebDavManager(
             webDav.downloadTo(Backup.zipFilePath, true)
             FileUtils.delete(Backup.backupPath)
             ZipUtils.unZipToPath(File(Backup.zipFilePath), Backup.backupPath)
-            Restore.restoreUnzipped(Backup.backupPath)
+            Restore.restoreUnzipped(Backup.backupPath, password)
             LocalConfig.lastBackup = System.currentTimeMillis()
         }
     }

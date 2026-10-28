@@ -2,7 +2,6 @@ package io.legado.app.ui.config.privateConfig
 
 import androidx.compose.runtime.Stable
 import io.legado.app.domain.model.PrivateBiometricStatus
-import io.legado.app.domain.model.PrivateUnlockScope
 import io.legado.app.domain.model.settings.PrivateAccessSettings
 
 @Stable
@@ -39,15 +38,7 @@ sealed interface PrivateConfigIntent {
     /** 生物认证通过、信封封装完成后回传；由 gateway 决定落盘与开关状态 */
     data class StoreBiometricEnvelope(val ciphertext: String, val iv: String) : PrivateConfigIntent
 
-    /** 私密功能总开关：关掉即整体休眠（不验证、不脱敏），密码与标记都留着 */
-    data class SetPrivateEnabled(val enabled: Boolean) : PrivateConfigIntent
-
-    data class SetVerifyOnEnterGroup(val enabled: Boolean) : PrivateConfigIntent
-    data class SetVerifyOnOpenBook(val enabled: Boolean) : PrivateConfigIntent
-    data class SetVerifyOnAppStart(val enabled: Boolean) : PrivateConfigIntent
-    data class SetUnlockScope(val scope: PrivateUnlockScope) : PrivateConfigIntent
-
-    /** "离开应用前有效"频率下的宽限期（秒），0 = 离开即失效 */
+    /** 私密模式：离开前台多久后要求重新验证（秒），0 = 离开即失效 */
     data class SetBackgroundGraceSeconds(val seconds: Int) : PrivateConfigIntent
 
     data object RequestNotificationPermission : PrivateConfigIntent

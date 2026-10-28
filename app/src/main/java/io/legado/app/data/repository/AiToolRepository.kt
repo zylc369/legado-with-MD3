@@ -48,9 +48,7 @@ class AiToolRepository(
      * 返回的错误刻意与"书不存在"完全一致，不泄露"这本书是私密的"。
      */
     private fun isReadable(bookUrl: String): Boolean {
-        val facts = bookDao.privateFacts(bookUrl)
-        return !facts.isPrivate ||
-                privateAccessGateway.isGrantedNow(bookUrl, facts.groupMask)
+        return !bookDao.isBookPrivate(bookUrl) || privateAccessGateway.isSessionUnlockedNow()
     }
 
     private fun Book.isReadable(): Boolean = isReadable(bookUrl)

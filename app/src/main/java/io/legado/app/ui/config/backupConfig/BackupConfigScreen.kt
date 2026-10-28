@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.theme.adaptiveContentPadding
 import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.AppTextField
+import io.legado.app.ui.widget.components.PasswordTextField
 import io.legado.app.ui.widget.components.SplicedColumnGroup
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.ui.widget.components.button.series.MediumTonalButton
@@ -54,6 +56,8 @@ import io.legado.app.ui.widget.components.card.SelectionItemCard
 import io.legado.app.ui.widget.components.checkBox.CheckboxItem
 import io.legado.app.ui.widget.components.filePicker.FilePickerSheet
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
+import io.legado.app.ui.widget.components.text.AppText
+import io.legado.app.ui.widget.components.button.series.SmallTonalButton
 import io.legado.app.ui.widget.components.settingItem.ClickableSettingItem
 import io.legado.app.ui.widget.components.settingItem.DropdownListSettingItem
 import io.legado.app.ui.widget.components.settingItem.InputSettingItem
@@ -74,6 +78,12 @@ fun BackupConfigRouteScreen(
     viewModel: BackupConfigViewModel = koinViewModel(),
 ) {
     val context = LocalContext.current
+    var pendingBackupPasswordRequest by remember {
+        mutableStateOf<BackupConfigEffect.RequestBackupPassword?>(null)
+    }
+    var pendingRestorePasswordRequest by remember {
+        mutableStateOf<BackupConfigEffect.RequestRestorePassword?>(null)
+    }
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val snackbarHostState = remember { SnackbarHostState() }
     val selectBackupPathLauncher = rememberLauncherForActivityResult(
@@ -108,6 +118,14 @@ fun BackupConfigRouteScreen(
                 BackupConfigEffect.LaunchRestoreFilePicker ->
                     restoreFileLauncher.launch(arrayOf("application/zip"))
                 BackupConfigEffect.LaunchImportOldDataPicker -> importOldLauncher.launch(arrayOf("*/*"))
+                is BackupConfigEffect.RequestBackupPassword -> {
+                    pendingBackupPasswordRequest = effect
+                }
+
+                is BackupConfigEffect.RequestRestorePassword -> {
+                    pendingRestorePasswordRequest = effect
+                }
+
                 is BackupConfigEffect.RequestStoragePermission -> {
                     PermissionsCompat.Builder()
                         .addPermissions(*Permissions.Group.STORAGE)
@@ -127,6 +145,138 @@ fun BackupConfigRouteScreen(
                 }
             }
         }
+    }
+
+    pendingBackupPasswordRequest?.let { request ->
+        var password by remember(request) { mutableStateOf("") }
+        var confirm by remember(request) { mutableStateOf("") }
+        var mismatch by remember(request) { mutableStateOf(false) }
+        val keyboard = KeyboardOptions(keyboardType = KeyboardType.Password)
+        AppAlertDialog(
+            show = true,
+            onDismissRequest = { pendingBackupPasswordRequest = null },
+            title = stringResource(R.string.backup_password_prompt_title),
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppText(
+                        text = stringResource(R.string.backup_password_prompt_desc),
+                        style = LegadoTheme.typography.bodySmall,
+                        color = LegadoTheme.colorScheme.onSurfaceVariant,
+                    )
+                    PasswordTextField(
+                        value = password,
+                        onValueChange = { password = it; mismatch = false },
+                        label = stringResource(R.string.backup_password_label),
+                        backgroundColor = LegadoTheme.colorScheme.surface,
+                        keyboardOptions = keyboard,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    PasswordTextField(
+                        value = confirm,
+                        onValueChange = { confirm = it; mismatch = false },
+                        label = stringResource(R.string.backup_password_confirm),
+                        backgroundColor = LegadoTheme.colorScheme.surface,
+                        keyboardOptions = keyboard,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (mismatch) {
+                        AppText(
+                            text = stringResource(R.string.backup_password_mismatch),
+                            style = LegadoTheme.typography.labelMedium,
+                            color = LegadoTheme.colorScheme.error,
+                        )
+                    }
+                    SmallTonalButton(
+                        onClick = {
+                            viewModel.onIntent(
+                                BackupConfigIntent.SkipBackupPassword(
+                                    runMode = request.mode,
+                                    runPath = request.path,
+                                )
+                            )
+                            pendingBackupPasswordRequest = null
+                        },
+                        text = stringResource(R.string.backup_password_skip),
+                    )
+                }
+            },
+            confirmText = stringResource(R.string.backup_password_set_and_run),
+            onConfirm = {
+                when {
+                    password.isBlank() -> {
+                        viewModel.onIntent(
+                            BackupConfigIntent.SkipBackupPassword(
+                                runMode = request.mode,
+                                runPath = request.path,
+                            )
+                        )
+                        pendingBackupPasswordRequest = null
+                    }
+
+                    password != confirm -> mismatch = true
+
+                    else -> {
+                        viewModel.onIntent(
+                            BackupConfigIntent.ConfirmBackupPassword(
+                                password = password,
+                                runMode = request.mode,
+                                runPath = request.path,
+                                addressKey = request.addressKey,
+                            )
+                        )
+                        pendingBackupPasswordRequest = null
+                    }
+                }
+            },
+            dismissText = stringResource(R.string.cancel),
+            onDismiss = { pendingBackupPasswordRequest = null },
+        )
+    }
+
+    pendingRestorePasswordRequest?.let { request ->
+        var password by remember(request) { mutableStateOf(request.suggested.orEmpty()) }
+        AppAlertDialog(
+            show = true,
+            onDismissRequest = {
+                pendingRestorePasswordRequest = null
+                viewModel.onIntent(BackupConfigIntent.CancelRestorePassword)
+            },
+            title = stringResource(R.string.restore_password_prompt_title),
+            content = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppText(
+                        text = stringResource(R.string.restore_password_prompt_desc),
+                        style = LegadoTheme.typography.bodySmall,
+                        color = LegadoTheme.colorScheme.onSurfaceVariant,
+                    )
+                    PasswordTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = stringResource(R.string.backup_password_label),
+                        backgroundColor = LegadoTheme.colorScheme.surface,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmText = stringResource(android.R.string.ok),
+            onConfirm = {
+                viewModel.onIntent(
+                    BackupConfigIntent.ConfirmRestorePassword(
+                        password = password,
+                        mode = request.mode,
+                        target = request.target,
+                        addressKey = request.addressKey,
+                    )
+                )
+                pendingRestorePasswordRequest = null
+            },
+            dismissText = stringResource(R.string.cancel),
+            onDismiss = {
+                pendingRestorePasswordRequest = null
+                viewModel.onIntent(BackupConfigIntent.CancelRestorePassword)
+            },
+        )
     }
 
     BackupConfigScreen(

@@ -152,10 +152,13 @@ import io.legado.app.domain.gateway.ImportBookSettingsGateway
 import io.legado.app.domain.gateway.LabSettingsGateway
 import io.legado.app.domain.gateway.LocalBookGateway
 import io.legado.app.domain.gateway.LocalBookImportGateway
+import io.legado.app.domain.gateway.PrivateShelfGateway
 import io.legado.app.domain.gateway.LocalImportGateway
 import io.legado.app.domain.gateway.LocalPasswordGateway
 import io.legado.app.domain.gateway.CustomTtsCatalogGateway
+import io.legado.app.data.repository.PrivateGroupMigrator
 import io.legado.app.feature.customtts.CustomTtsViewModel
+import io.legado.app.feature.privateshelf.PrivateShelfViewModel
 import io.legado.app.domain.gateway.CustomTtsSettingsGateway
 import io.legado.app.domain.gateway.MangaReaderDataGateway
 import io.legado.app.domain.gateway.MangaReaderSessionFactory
@@ -228,6 +231,7 @@ import io.legado.app.domain.usecase.VerifyBookmarkTargetUseCase
 import io.legado.app.domain.usecase.WebDavBackupUseCase
 import io.legado.app.domain.usecase.readRecord.GetReadRecordOverviewUseCase
 import io.legado.app.feature.onboarding.OnboardingViewModel
+import io.legado.app.help.security.PrivateSecureController
 import io.legado.app.help.coil.CoverFetcher
 import io.legado.app.help.coil.CoverInterceptor
 import io.legado.app.help.config.ThemePackageManager
@@ -360,6 +364,9 @@ val appModule = module {
     singleOf(::BookRepository)
     singleOf(::BookImportRepository)
     single<LocalImportGateway> { LocalImportGatewayImpl() }
+    single { PrivateGroupMigrator(get()) }
+    single { PrivateSecureController() }
+    single<PrivateShelfGateway> { get<BookRepository>() }
     single<LocalBookImportGateway> { get<BookImportRepository>() }
     single<ImportFolderScanner> { DefaultImportFolderScanner() }
     singleOf(::BookGroupRepository)
@@ -420,6 +427,7 @@ val appModule = module {
     single<CustomTtsSettingsGateway> { get<CustomTtsSettingsRepository>() }
     single<CustomTtsCatalogGateway> { CustomTtsCatalogRepository(get()) }
     viewModelOf(::CustomTtsViewModel)
+    viewModelOf(::PrivateShelfViewModel)
     singleOf(::ReadAloudSessionStore)
     single<PlaybackCapsuleGateway> { PlaybackCapsuleGatewayAdapter(get(), get()) }
     singleOf(::MainNavRouteTracker)
@@ -506,7 +514,7 @@ val appModule = module {
         )
     }
     single<AppStartupGateway> { AppStartupRepository(get()) }
-    single<BackupRestoreGateway> { BackupRestoreRepository() }
+    single<BackupRestoreGateway> { BackupRestoreRepository(get()) }
     single<BookCacheDownloadGateway> { CacheBookDownloadRepository(get()) }
     single<BookCacheCleanupGateway> { BookCacheCleanupRepository(get()) }
     single<BookExportSettingsGateway> { BookExportSettingsRepository() }
@@ -515,7 +523,7 @@ val appModule = module {
     single<BookSourceCallbackGateway> { BookSourceCallbackRepository(get(), get()) }
     single<LocalBookGateway> { LocalBookRepository(get()) }
     single<DatabaseMaintenanceGateway> { DatabaseMaintenanceRepository(get()) }
-    single<WebDavBackupGateway> { WebDavBackupRepository() }
+    single<WebDavBackupGateway> { WebDavBackupRepository(get()) }
     single<ReadingProgressGateway> { WebDavReadingProgressRepository() }
     single<HomepageModulesGateway> { HomepageModulesRepository(get(), get()) }
     single<BookDomainRepository> { BookDomainRepositoryImpl(get(), get()) }

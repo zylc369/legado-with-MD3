@@ -33,16 +33,28 @@ object LocalPreferencesKeys {
     val PRIVATE_BIOMETRIC_ENABLED = booleanPreferencesKey("private_biometric_enabled")
     val PRIVATE_BIOMETRIC_ENVELOPE = stringPreferencesKey("private_biometric_envelope")
     val PRIVATE_BIOMETRIC_IV = stringPreferencesKey("private_biometric_iv")
+    // 已废弃（私密分组/验证时机模型删除）：键保留只为兼容旧数据，不再读写
     val PRIVATE_VERIFY_ON_ENTER_GROUP = booleanPreferencesKey("private_verify_on_enter_group")
     val PRIVATE_VERIFY_ON_OPEN_BOOK = booleanPreferencesKey("private_verify_on_open_book")
     val PRIVATE_VERIFY_ON_APP_START = booleanPreferencesKey("private_verify_on_app_start")
     val PRIVATE_UNLOCK_SCOPE = stringPreferencesKey("private_unlock_scope")
-
-    // 私密功能总开关：关掉即整体休眠（不验证、不脱敏、不守卫），密码与标记都留着
     val PRIVATE_ENABLED = booleanPreferencesKey("private_enabled")
 
-    // "离开应用前有效"频率下的宽限期（秒）：0 = 离开即失效
+    // 私密模式：离开前台多久后要求重新验证（秒）；0 = 离开即失效
     val PRIVATE_BACKGROUND_GRACE_SECONDS = intPreferencesKey("private_background_grace_seconds")
+
+    // 私密分组→单本私密 的一次性迁移是否已完成
+    val PRIVATE_GROUP_MIGRATED = booleanPreferencesKey("private_group_migrated")
+
+    // 旧模型遗留宽限值 → 新模型默认 60 秒 的一次性修正是否已完成
+    val PRIVATE_GRACE_MIGRATED = booleanPreferencesKey("private_grace_migrated")
+
+    // 备份地址 → 备份密码（JSON map，明文存储与既有全局备份密码同级别）
+    val BACKUP_ADDRESS_PASSWORDS = stringPreferencesKey("backup_address_passwords")
+
+    // 私密模式专用密码（与 PASSWORD——备份加密密码——解耦）
+    val PRIVATE_PASSWORD = stringPreferencesKey("private_password")
+    val PRIVATE_PASSWORD_MIGRATED = booleanPreferencesKey("private_password_migrated")
 
     val PRIVACY_POLICY_OK = booleanPreferencesKey("privacy_policy_ok")
     val PERMISSION_CHECKED = booleanPreferencesKey("permission_checked")

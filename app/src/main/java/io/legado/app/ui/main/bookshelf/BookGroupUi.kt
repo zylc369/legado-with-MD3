@@ -11,8 +11,7 @@ data class BookGroupUi(
     val order: Int,
     val enableRefresh: Boolean,
     val show: Boolean,
-    val bookSort: Int,
-    val isPrivate: Boolean
+    val bookSort: Int
 )
 
 fun BookGroup.toBookGroupUi() = BookGroupUi(
@@ -22,6 +21,5 @@ fun BookGroup.toBookGroupUi() = BookGroupUi(
     order = order,
     enableRefresh = enableRefresh,
     show = show,
-    bookSort = bookSort,
-    isPrivate = isPrivate
+    bookSort = bookSort
 )

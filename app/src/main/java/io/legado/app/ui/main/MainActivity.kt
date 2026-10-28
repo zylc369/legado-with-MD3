@@ -9,6 +9,7 @@ import android.text.format.DateUtils
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -38,6 +40,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
@@ -59,7 +63,11 @@ import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.domain.gateway.PlaybackCapsuleGateway
 import io.legado.app.domain.model.PlaybackCapsuleSource
 import io.legado.app.domain.model.PlaybackCapsuleState
+import io.legado.app.domain.gateway.PrivateAccessGateway
+import io.legado.app.domain.model.PrivateAccessState
+import io.legado.app.domain.model.settings.PrivateAccessSettings
 import io.legado.app.help.book.BookHelp
+import io.legado.app.help.security.PrivateSecureController
 import io.legado.app.help.config.LocalConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.storage.Backup
@@ -85,7 +93,6 @@ import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerViewModel
 import io.legado.app.ui.main.bookshelf.BookshelfCoverPreloader
 import io.legado.app.ui.theme.LocalAppUiConfiguration
 import io.legado.app.ui.welcome.WelcomeActivity
-import io.legado.app.ui.widget.components.privacy.PrivateAppStartGate
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
@@ -98,6 +105,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -628,10 +636,57 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
                     MainNavigator.onBackStackChanged()
                 }
         }
+        // 私密模式：任务列表遮挡（FLAG_SECURE）与切后台宽限期
+        val privateSecureController: PrivateSecureController = org.koin.compose.koinInject()
+        val privateAccessGateway: PrivateAccessGateway = org.koin.compose.koinInject()
+        val secureActive by privateSecureController.secureActive
+            .collectAsStateWithLifecycle()
+        val privateSettings by privateAccessGateway.settings
+            .collectAsStateWithLifecycle(initialValue = PrivateAccessSettings())
+        val privateAccessState by privateAccessGateway.state
+            .collectAsStateWithLifecycle(initialValue = PrivateAccessState())
+        val secureWindow = window
+        LaunchedEffect(secureActive, secureWindow) {
+            if (secureActive) {
+                secureWindow.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                secureWindow.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+        // 私密会话宽限期：离开前台只记时间；回来时超过宽限（设置项，默认 60 秒）才收回会话。
+        // 0 表示"离开即失效"。进程重启天然回到锁定态（会话只存内存）。
+        DisposableEffect(
+            privateAccessGateway,
+            privateSettings.backgroundGraceSeconds,
+            privateAccessState.isSessionUnlocked,
+        ) {
+            val graceSeconds = privateSettings.backgroundGraceSeconds
+            val sessionUnlocked = privateAccessState.isSessionUnlocked
+            val leftAt = AtomicLong(0L)
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_STOP -> if (sessionUnlocked) {
+                        leftAt.set(System.currentTimeMillis())
+                        if (graceSeconds == 0) privateAccessGateway.lock()
+                    }
+
+                    Lifecycle.Event.ON_START -> {
+                        val at = leftAt.getAndSet(0L)
+                        if (at != 0L &&
+                            System.currentTimeMillis() - at > graceSeconds * 1000L
+                        ) {
+                            privateAccessGateway.lock()
+                        }
+                    }
+
+                    else -> Unit
+                }
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+
         SharedTransitionLayout {
-            // 启动验证做成单独的 screen：门槛未过时完全不组合应用界面，
-            // 因此验证页背后看不到书架/阅读界面，也没有可交互的入口
-            PrivateAppStartGate {
                 Box(modifier = Modifier.fillMaxSize()) {
                     Box(
                         Modifier
@@ -836,7 +891,6 @@ open class MainActivity : BaseComposeActivity(), AudioPlay.CallBack {
                 ) {
                     MainNavigator.navigateBack(this@MainActivity, backStack)
                 }
-            }
         }
         TextSheetHost()
     }

@@ -24,7 +24,18 @@ interface ReadRecordDao {
     @get:Query("select * from readRecordSession")
     val allSession: List<ReadRecordSession>
 
-    @Query("SELECT sum(readTime) FROM readRecord")
+    // 私密书不做任何统计：按阅读记录的名字+作者关联 books，命中 isPrivate=1 即排除
+    @Query(
+        """
+        SELECT sum(readTime) FROM readRecord
+        WHERE NOT EXISTS (
+            SELECT 1 FROM books AS b
+            WHERE b.isPrivate = 1
+              AND b.name = readRecord.bookName
+              AND b.author = readRecord.bookAuthor
+        )
+        """
+    )
     fun getTotalReadTime(): Flow<Long?>
 
     @Query(
@@ -32,13 +43,30 @@ interface ReadRecordDao {
         SELECT COUNT(*) FROM (
             SELECT 1
             FROM readRecord
+            WHERE NOT EXISTS (
+                SELECT 1 FROM books AS b
+                WHERE b.isPrivate = 1
+                  AND b.name = readRecord.bookName
+                  AND b.author = readRecord.bookAuthor
+            )
             GROUP BY bookName, bookAuthor
         )
         """
     )
     fun observeTotalReadBookCount(): Flow<Int>
 
-    @Query("SELECT SUM(readTime) FROM readRecordDetail WHERE date = :date")
+    @Query(
+        """
+        SELECT SUM(readTime) FROM readRecordDetail
+        WHERE date = :date
+          AND NOT EXISTS (
+              SELECT 1 FROM books AS b
+              WHERE b.isPrivate = 1
+                AND b.name = readRecordDetail.bookName
+                AND b.author = readRecordDetail.bookAuthor
+          )
+        """
+    )
     fun observeReadTimeByDate(date: String): Flow<Long?>
 
     @Query(
@@ -49,6 +77,12 @@ interface ReadRecordDao {
                 bookAuthor,
                 MAX(lastRead) AS lastRead
             FROM readRecord
+            WHERE NOT EXISTS (
+                SELECT 1 FROM books AS b
+                WHERE b.isPrivate = 1
+                  AND b.name = readRecord.bookName
+                  AND b.author = readRecord.bookAuthor
+            )
             GROUP BY bookName, bookAuthor
             ORDER BY lastRead DESC
             LIMIT :limit

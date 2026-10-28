@@ -4,12 +4,14 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.legado.app.R
+import io.legado.app.data.repository.BackupPasswordStore
 import io.legado.app.domain.gateway.BackupSettingsGateway
 import io.legado.app.domain.model.settings.BackupSettings
 import io.legado.app.domain.usecase.BackupRestoreUseCase
 import io.legado.app.domain.usecase.WebDavBackupUseCase
 import io.legado.app.utils.isContentScheme
 import kotlinx.collections.immutable.toImmutableList
+import io.legado.app.help.config.LocalConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,6 +99,33 @@ class BackupConfigViewModel(
             is BackupConfigIntent.BackupDirectorySelected -> saveBackupPath(intent.path, intent.runBackup)
             is BackupConfigIntent.RequestBackup -> requestBackup(intent.mode)
             is BackupConfigIntent.PerformBackup -> performBackup(intent.path, intent.mode)
+
+            is BackupConfigIntent.ConfirmBackupPassword -> {
+                viewModelScope.launch(Dispatchers.IO) {
+                    BackupPasswordStore.remember(intent.addressKey, intent.password)
+                    continueBackup(intent.runPath, intent.runMode, intent.password)
+                }
+            }
+
+            is BackupConfigIntent.SkipBackupPassword ->
+                continueBackup(intent.runPath, intent.runMode, null)
+
+            is BackupConfigIntent.ConfirmRestorePassword -> {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val key = intent.addressKey
+                    if (key != null) {
+                        BackupPasswordStore.remember(key, intent.password)
+                    } else {
+                        BackupPasswordStore.rememberRestoreSuggestion(intent.password)
+                    }
+                    when (intent.mode) {
+                        "webdav" -> restoreNetworkWith(intent.target, intent.password)
+                        else -> restoreLocalWith(intent.target, intent.password)
+                    }
+                }
+            }
+
+            BackupConfigIntent.CancelRestorePassword -> Unit
             BackupConfigIntent.RequestLocalRestore -> requestLocalRestore()
             is BackupConfigIntent.RestoreLocal -> restoreLocal(intent.uri)
             BackupConfigIntent.RequestNetworkRestore -> loadNetworkBackups()
@@ -262,8 +291,32 @@ class BackupConfigViewModel(
 
     private fun requestBackup(mode: String, selectedPath: String? = null) {
         _uiState.update { it.copy(activeSheet = null) }
-        val path = selectedPath ?: _uiState.value.settings.backupPath.orEmpty()
+        val settings = _uiState.value.settings
+        val path = selectedPath ?: settings.backupPath.orEmpty()
         if (path.isEmpty() && mode != "webdav") return
+        val addressKey = BackupPasswordStore.addressKey(mode, settings, path)
+        val known = BackupPasswordStore.passwordFor(addressKey)
+        if (known != null) {
+            continueBackup(path, mode, known)
+            return
+        }
+        // 老用户只有全局密码：首次备份到该地址时沿用并记住，之后可独立修改
+        val legacy = BackupPasswordStore.legacyDefault()
+        if (legacy != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                BackupPasswordStore.remember(addressKey, legacy)
+                withContext(Dispatchers.Main) { continueBackup(path, mode, legacy) }
+            }
+            return
+        }
+        _effects.tryEmit(BackupConfigEffect.RequestBackupPassword(mode, path, addressKey))
+    }
+
+    /** 该地址本次要用的密码；null = 不覆盖（回退全局/空） */
+    private var pendingBackupPassword: String? = null
+
+    private fun continueBackup(path: String, mode: String, password: String?) {
+        pendingBackupPassword = password
         if (path.isNotEmpty() && !path.isContentScheme()) {
             _effects.tryEmit(BackupConfigEffect.RequestStoragePermission(path, mode))
         } else {
@@ -274,7 +327,9 @@ class BackupConfigViewModel(
     private fun performBackup(path: String, mode: String) {
         _uiState.update { it.copy(activeDialog = BackupConfigDialog.Loading(R.string.backup)) }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { backupRestoreUseCase.backup(path, mode) }
+            val password = pendingBackupPassword
+            pendingBackupPassword = null
+            runCatching { backupRestoreUseCase.backup(path, mode, password) }
                 .onSuccess {
                     withContext(Dispatchers.Main) {
                         _uiState.update { it.copy(activeDialog = null) }
@@ -298,9 +353,22 @@ class BackupConfigViewModel(
     }
 
     private fun restoreLocal(uri: String) {
+        _uiState.update { it.copy(activeDialog = null) }
+        // 本地备份文件来源地址未知：必须询问密码（预填最近一次/旧全局密码）
+        _effects.tryEmit(
+            BackupConfigEffect.RequestRestorePassword(
+                mode = "local",
+                target = uri,
+                addressKey = null,
+                suggested = BackupPasswordStore.suggestedRestorePassword(),
+            )
+        )
+    }
+
+    private fun restoreLocalWith(uri: String, password: String?) {
         _uiState.update { it.copy(activeDialog = BackupConfigDialog.Loading(R.string.on_restore)) }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { backupRestoreUseCase.restoreLocal(Uri.parse(uri).toString()) }
+            runCatching { backupRestoreUseCase.restoreLocal(Uri.parse(uri).toString(), password) }
                 .fold(
                     onSuccess = { finishRestoreSuccess() },
                     onFailure = { finishRestoreFailure(it.localizedMessage) },
@@ -340,11 +408,38 @@ class BackupConfigViewModel(
     }
 
     private fun restoreNetwork(name: String) {
+        _uiState.update { it.copy(activeSheet = null) }
+        val settings = _uiState.value.settings
+        val addressKey = BackupPasswordStore.addressKey(BackupPasswordStore.MODE_WEBDAV, settings)
+        val known = BackupPasswordStore.passwordFor(addressKey)
+        if (known != null) {
+            restoreNetworkWith(name, known)
+            return
+        }
+        val legacy = BackupPasswordStore.legacyDefault()
+        if (legacy != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                BackupPasswordStore.remember(addressKey, legacy)
+                withContext(Dispatchers.Main) { restoreNetworkWith(name, legacy) }
+            }
+            return
+        }
+        _effects.tryEmit(
+            BackupConfigEffect.RequestRestorePassword(
+                mode = "webdav",
+                target = name,
+                addressKey = addressKey,
+                suggested = null,
+            )
+        )
+    }
+
+    private fun restoreNetworkWith(name: String, password: String?) {
         _uiState.update {
             it.copy(activeSheet = null, activeDialog = BackupConfigDialog.Loading(R.string.on_restore))
         }
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { webDavBackupUseCase.restore(name) }
+            runCatching { webDavBackupUseCase.restore(name, password) }
                 .fold(
                     onSuccess = { finishRestoreSuccess() },
                     onFailure = { finishRestoreFailure(it.localizedMessage, webDav = true) },

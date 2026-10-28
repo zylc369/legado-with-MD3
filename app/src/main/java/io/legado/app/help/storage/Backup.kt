@@ -132,10 +132,17 @@ object Backup {
         }
     }
 
-    suspend fun backupLocked(context: Context, path: String?, mode: String = "both") {
+    suspend fun backupLocked(
+        context: Context,
+        path: String?,
+        mode: String = "both",
+        password: String? = null,
+    ) {
         BackupRestoreLock.withLock {
-            withContext(IO) {
-                backup(context, path, mode)
+            BackupKey.withPassword(password) {
+                withContext(IO) {
+                    backup(context, path, mode)
+                }
             }
         }
     }

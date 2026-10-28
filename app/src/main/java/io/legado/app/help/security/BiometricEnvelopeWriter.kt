@@ -38,7 +38,9 @@ object BiometricEnvelopeWriter {
             onError()
             return
         }
-        val password = AppConfigStore.getString(LocalPreferencesKeys.PASSWORD.name).orEmpty()
+        val password = AppConfigStore.getString(
+            LocalPreferencesKeys.PRIVATE_PASSWORD.name
+        ).orEmpty()
         if (password.isEmpty()) {
             // 没有本地密码就无从封装：生物快捷本来就只是"免手输密码"
             onError()

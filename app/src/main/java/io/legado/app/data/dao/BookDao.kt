@@ -13,7 +13,6 @@ import io.legado.app.data.entities.BookGroup
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ShelfBookSummary
 import io.legado.app.domain.model.CacheableBook
-import io.legado.app.domain.model.PrivateBookFacts
 import io.legado.app.help.book.isNotShelf
 import io.legado.app.ui.main.bookshelf.BookShelfItem
 import kotlinx.coroutines.flow.Flow
@@ -24,14 +23,11 @@ data class GroupBookCount(
     val count: Int
 )
 
-private const val PRIVATE_GROUP_MASK =
-    "(SELECT COALESCE(SUM(groupId), 0) FROM book_groups WHERE groupId > 0 AND isPrivate = 1)"
-
 private const val PUBLIC_GROUP_MASK =
     "(SELECT COALESCE(SUM(groupId), 0) FROM book_groups WHERE groupId > 0 AND isPrivate = 0)"
 
-private const val PUBLIC_BOOK_FILTER =
-    "(`group` = 0 OR (`group` & $PRIVATE_GROUP_MASK) = 0)"
+/** 公开查询统一过滤：单本私密标记的书不进入任何公开列表/计数/搜索 */
+private const val PUBLIC_BOOK_FILTER = "isPrivate = 0"
 
 @Dao
 interface BookDao {
@@ -353,7 +349,7 @@ interface BookDao {
             wordCount
         FROM books 
         WHERE (`group` & :group) > 0
-        AND ((SELECT isPrivate FROM book_groups WHERE groupId = :group) = 1 OR $PUBLIC_BOOK_FILTER)
+        AND $PUBLIC_BOOK_FILTER
         """
     )
     fun flowBookShelfByUserGroup(group: Long): Flow<List<BookShelfItem>>
@@ -890,7 +886,7 @@ interface BookDao {
         """
         SELECT COUNT(*) FROM books
         WHERE (`group` & :groupId) > 0
-        AND ((SELECT isPrivate FROM book_groups WHERE groupId = :groupId) = 1 OR $PUBLIC_BOOK_FILTER)
+        AND $PUBLIC_BOOK_FILTER
         """
     )
     fun flowUserGroupBookCount(groupId: Long): Flow<Int>
@@ -1168,7 +1164,7 @@ interface BookDao {
             ifnull(customIntro, ifnull(listIntro, intro)) as intro, kind, customTag, wordCount
         FROM books
         WHERE (`group` & :groupId) > 0
-            AND ((SELECT isPrivate FROM book_groups WHERE groupId = :groupId) = 1 OR $PUBLIC_BOOK_FILTER)
+            AND $PUBLIC_BOOK_FILTER
         ORDER BY durChapterTime DESC
         LIMIT 10
         """
@@ -1176,30 +1172,73 @@ interface BookDao {
     fun flowBookShelfPreviewByUserGroup(groupId: Long): Flow<List<BookShelfItem>>
 
     // ---------- 私密书籍标记 ----------
-    // 私密判定取并集：books.isPrivate = 1（单本标记）∪ 所属私密分组。
-    // 分组那一半由 PRIVATE_GROUP_MASK 在内存侧按位与得出，避免改动上面十几处投影。
+    // 只有单本私密一种机制；公开/私密的分离全部由 SQL 完成。
 
     @Query("SELECT bookUrl FROM books WHERE isPrivate = 1")
     fun flowPrivateBookUrls(): Flow<List<String>>
 
-    /**
-     * 私密判定取并集：单本标记 ∪ 所属私密分组；顺带取回分组掩码供分组授权复用。
-     *
-     * 刻意**不挂起**：AI 工具是同步拼字符串返回的，等不了挂起调用；调用方负责不在主线程调用。
-     */
+    /** 同步判定（AI 工具等同步路径）：书不存在时按"与私密无关"处理 */
+    @Query(
+        "SELECT COALESCE((SELECT isPrivate FROM books WHERE bookUrl = :bookUrl), 0) = 1"
+    )
+    fun isBookPrivate(bookUrl: String): Boolean
+
+    /** 只有书名+作者时的判定（阅读记录/书签）；查不到同上 */
     @Query(
         """
-        SELECT
-            CASE WHEN
-                COALESCE((SELECT isPrivate FROM books WHERE bookUrl = :bookUrl), 0) = 1
-                OR ($PRIVATE_GROUP_MASK
-                    & COALESCE((SELECT `group` FROM books WHERE bookUrl = :bookUrl), 0)) <> 0
-            THEN 1 ELSE 0 END AS isPrivate,
-            COALESCE((SELECT `group` FROM books WHERE bookUrl = :bookUrl), 0) AS groupMask
+        SELECT COALESCE(
+            (SELECT books.isPrivate FROM books WHERE name = :name AND author = :author), 0
+        ) = 1
         """
     )
-    fun privateFacts(bookUrl: String): PrivateBookFacts
+    fun isBookPrivateByName(name: String, author: String): Boolean
+
+    /** 私密模式书架：与公开书架同投影，只是反向过滤 */
+    @Query(
+        """
+    SELECT
+        bookUrl,
+        name,
+        author,
+        origin,
+        originName,
+        coverUrl,
+        customCoverUrl,
+        durChapterTitle,
+        durChapterTime,
+        durChapterPos,
+        latestChapterTitle,
+        latestChapterTime,
+        lastCheckCount,
+        totalChapterNum,
+        durChapterIndex,
+        type,
+        `group`,
+        `order`,
+        canUpdate,
+        ifnull(customIntro, ifnull(listIntro, intro)) as intro,
+        kind,
+        customTag,
+        wordCount
+    FROM books
+    WHERE isPrivate = 1
+    ORDER BY durChapterTime DESC
+"""
+    )
+    fun flowPrivateBookShelf(): Flow<List<BookShelfItem>>
 
     @Query("UPDATE books SET isPrivate = :isPrivate WHERE bookUrl IN (:bookUrls)")
     suspend fun setBooksPrivate(bookUrls: Set<String>, isPrivate: Boolean)
+
+    // ---------- 私密分组一次性迁移 ----------
+    // 旧机制（私密分组）已删除：组内书转为单本私密，分组去掉私密属性。
+
+    @Query("SELECT COALESCE(SUM(groupId), 0) FROM book_groups WHERE groupId > 0 AND isPrivate = 1")
+    fun sumPrivateGroupIds(): Long
+
+    @Query("UPDATE books SET isPrivate = 1 WHERE `group` != 0 AND (`group` & :mask) != 0")
+    fun markGroupBooksPrivate(mask: Long): Int
+
+    @Query("UPDATE book_groups SET isPrivate = 0 WHERE isPrivate = 1")
+    fun clearGroupPrivateFlags(): Int
 }

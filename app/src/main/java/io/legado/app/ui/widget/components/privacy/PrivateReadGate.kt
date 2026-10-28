@@ -7,7 +7,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,49 +19,23 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
-import io.legado.app.domain.model.PrivateAccessState
-import io.legado.app.domain.model.PrivateBookFacts
-import io.legado.app.domain.model.PrivateUnlockTarget
-import io.legado.app.domain.model.settings.PrivateAccessSettings
 import io.legado.app.help.security.BiometricUnlockLauncher
+import io.legado.app.help.security.PrivateSecureController
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.AppTextField
 import io.legado.app.ui.widget.components.alert.AppAlertDialog
 import io.legado.app.utils.toastOnUi
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-
-/**
- * 中心 gate 的状态。
- *
- * [isLocked] 是**派生**的而不是一次判定的结果：解锁成功后 [access] 会变化，状态自然翻到
- * 未锁定，"验证成功后自动进阅读器"因此不需要额外的回调管道。
- */
-@Stable
-data class PrivateReadGateUiState(
-    val isChecking: Boolean = true,
-    val bookUrl: String? = null,
-    val facts: PrivateBookFacts = PrivateBookFacts(isPrivate = false, groupMask = 0L),
-    val access: PrivateAccessState = PrivateAccessState(),
-    val settings: PrivateAccessSettings = PrivateAccessSettings(),
-) {
-    val target: PrivateUnlockTarget? get() = bookUrl?.let(PrivateUnlockTarget::Book)
-
-    val isLocked: Boolean
-        get() = !isChecking && bookUrl != null && facts.isPrivate &&
-                settings.verifyOnOpenBook &&
-                !access.isTargetGranted(bookUrl, facts.groupMask)
-}
-
-sealed interface PrivateReadGateEffect {
-    data class ShowMessage(val message: String) : PrivateReadGateEffect
-    data object NavigateToLocalPasswordSettings : PrivateReadGateEffect
-}
 
 /**
  * 阅读器路由的私密闸门。
  *
- * 未授权时用**全屏锁定页**取代阅读器内容——不是"先打开再遮住"，阅读器在这个分支里
- * 根本不会被组合，也就没有加载正文的机会。验证通过后内容分支自然接上，就是"自动进阅读器"。
+ * 未解锁时用**全屏锁定页**取代阅读器内容——不是"先打开再遮住"，阅读器在这个分支里
+ * 根本不会被组合，也就没有加载正文的机会。会话解锁后内容分支自然接上。
+ *
+ * 无论锁定还是已放行：只要这本书是私密的，就向 [PrivateSecureController] 报告，
+ * MainActivity 据此挂 FLAG_SECURE（任务列表无预览 + 禁止截屏录屏）。
  *
  * @param onExit 取消时退出的动作：调用方负责"退回当前页，没有当前页就退回书架"
  */
@@ -98,15 +71,11 @@ fun PrivateReadGate(
         }
     }
 
-    // 离开阅读器即撤销本次授权：回到书架时卡片要重新脱敏。
-    // 放在这里而不是"打开前撤销"，是因为打开前撤销会让紧接着的这道 gate 再次拦人。
-    DisposableEffect(state.bookUrl) {
-        val url = state.bookUrl
-        if (url == null) {
-            onDispose { }
-        } else {
-            onDispose { viewModel.revokeGrant(url) }
-        }
+    // 私密书阅读全程保持 FLAG_SECURE：任务列表无预览、禁止截屏录屏
+    val secureController: PrivateSecureController = koinInject()
+    DisposableEffect(state.bookUrl, state.isPrivate) {
+        if (state.isPrivate) secureController.retain()
+        onDispose { if (state.isPrivate) secureController.release() }
     }
 
     fun requestUnlock() {
@@ -132,8 +101,7 @@ fun PrivateReadGate(
         }
     }
 
-    // 锁定态**直接弹验证**（与详情页同一套做法）：从书签 / 阅读记录点一条私密书进来，
-    // 这一次点击本身就该是解锁动作，而不是先看锁定页、再点一次"验证"。
+    // 锁定态**直接弹验证**：这次点击本身就该是解锁动作，而不是先看锁定页再点一次。
     // 只会自动弹一次；用户取消后停在锁定页，那里仍有验证入口。
     var autoUnlockLaunched by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.isLocked) {
@@ -144,8 +112,7 @@ fun PrivateReadGate(
     }
 
     when {
-        // 判定期间不渲染任何内容：这一帧本来就处在路由淡入里，看不到空白，
-        // 但绝不能先渲染阅读器再遮住
+        // 判定期间不渲染任何内容：绝不能先渲染阅读器再遮住
         state.isChecking -> Box(modifier = Modifier.fillMaxSize())
 
         state.isLocked -> PrivateLockedPage(
@@ -182,7 +149,7 @@ fun PrivateReadGate(
                     onValueChange = { password = it },
                     label = passwordTitle,
                     backgroundColor = LegadoTheme.colorScheme.surface,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation('*'),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )

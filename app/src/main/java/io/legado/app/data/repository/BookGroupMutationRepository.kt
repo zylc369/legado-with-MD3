@@ -26,7 +26,6 @@ class BookGroupMutationRepository(
                 cover = group.cover,
                 bookSort = group.bookSort,
                 enableRefresh = group.enableRefresh,
-                isPrivate = group.isPrivate,
                 order = groupDao.maxOrder.plus(1),
             )
 
@@ -111,7 +110,6 @@ class BookGroupMutationRepository(
         enableRefresh = enableRefresh,
         show = show,
         bookSort = bookSort,
-        isPrivate = isPrivate,
     )
 
     private fun TagGroupRuleUpdate.toEntity(id: Long = this.id) = TagGroupRule(

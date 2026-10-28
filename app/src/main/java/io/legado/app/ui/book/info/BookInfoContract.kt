@@ -79,6 +79,7 @@ data class BookInfoUiState(
     val privateAccess: PrivateAccessState = PrivateAccessState(),
     /** 应用内密码解锁弹窗（生物不可用或用户选择密码时） */
     val showPrivatePasswordDialog: Boolean = false,
+    val showDeleteBookConfirm: Boolean = false,
 )
 
 @Stable
@@ -234,6 +235,11 @@ sealed interface BookInfoIntent {
 
     /** 删除 Sheet：确认删除本书（Sheet 即确认框，不再弹二次确认）。 */
     data class ShelfDeleteConfirm(val deleteOriginal: Boolean) : BookInfoIntent
+
+    /** 详情页菜单「删除书籍」：二次确认框（与书架管理同一套文案与逻辑） */
+    data object ShowDeleteBookConfirm : BookInfoIntent
+    data object DismissDeleteBookConfirm : BookInfoIntent
+    data class ConfirmDeleteBook(val deleteOriginal: Boolean) : BookInfoIntent
     data class CoexistWithShelfConflict(
         val existingBookUrl: String,
         val options: ChangeSourceMigrationOptions,
@@ -393,4 +399,5 @@ enum class BookInfoMenuAction {
     ClearCache,
     ShowLog,
     TogglePrivate,
+    DeleteBook,
 }

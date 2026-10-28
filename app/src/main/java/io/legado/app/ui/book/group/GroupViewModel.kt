@@ -35,7 +35,6 @@ class GroupViewModel(
         groupName: String,
         bookSort: Int,
         enableRefresh: Boolean,
-        isPrivate: Boolean,
         cover: String?,
         pattern: String? = null,
         onError: ((Throwable) -> Unit)? = null,
@@ -48,7 +47,6 @@ class GroupViewModel(
                         groupName = groupName,
                         bookSort = bookSort,
                         enableRefresh = enableRefresh,
-                        isPrivate = isPrivate,
                         cover = cover,
                         pattern = pattern,
                     )
@@ -127,7 +125,6 @@ class GroupViewModel(
         enableRefresh = enableRefresh,
         show = show,
         bookSort = bookSort,
-        isPrivate = isPrivate,
     )
 
     private fun TagGroupRule.toUpdate() = TagGroupRuleUpdate(

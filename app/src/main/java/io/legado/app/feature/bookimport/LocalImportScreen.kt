@@ -122,6 +122,8 @@ fun LocalImportRouteScreen(
             if (show) fileNameRuleDraft = uiState.fileNameRule
             showFileNameRuleDialog = show
         },
+        // 与顶栏返回/系统返回同一条路径：只 pop 一层，回上一页
+        onFinishImport = onBackClick,
     )
 }
 
@@ -134,6 +136,7 @@ fun LocalImportScreen(
     fileNameRuleDraft: String,
     onFileNameRuleDraftChange: (String) -> Unit,
     onShowFileNameRuleDialogChange: (Boolean) -> Unit,
+    onFinishImport: () -> Unit,
 ) {
     AppAlertDialog(
         show = showFileNameRuleDialog,
@@ -177,6 +180,7 @@ fun LocalImportScreen(
         onBackClick = onBackClick,
         handleBack = handleBack,
         onShowFileNameRuleDialogChange = onShowFileNameRuleDialogChange,
+        onFinishImport = onFinishImport,
     )
 }
 
@@ -187,6 +191,7 @@ private fun ImportScaffoldBody(
     onBackClick: () -> Unit,
     handleBack: () -> Unit,
     onShowFileNameRuleDialogChange: (Boolean) -> Unit,
+    onFinishImport: () -> Unit,
 ) {
     val phase = state.phase
     val isConfirm = phase is ImportPhase.Confirm
@@ -246,12 +251,20 @@ private fun ImportScaffoldBody(
                 padding = padding,
             )
 
-            is ImportPhase.Done -> DoneContent(
-                phase = phase,
-                onIntent = onIntent,
-                onBackClick = onBackClick,
-                padding = padding,
-            )
+            is ImportPhase.Done -> {
+                if (phase.summary.failureCount == 0) {
+                    // 全部成功：只留 toast（VM 已发），返回上一页（导入页的入口页面），
+                    // 不是跳回书架、也不清栈——从哪进来回哪去
+                    LaunchedEffect(phase) { onFinishImport() }
+                } else {
+                    DoneContent(
+                        phase = phase,
+                        onIntent = onIntent,
+                        onBackClick = onBackClick,
+                        padding = padding,
+                    )
+                }
+            }
         }
     }
 }

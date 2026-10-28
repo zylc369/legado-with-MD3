@@ -3,7 +3,6 @@ package io.legado.app.ui.config.privateConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.legado.app.R
-import io.legado.app.domain.gateway.LocalPasswordGateway
 import io.legado.app.domain.gateway.OtherSettingsGateway
 import io.legado.app.domain.gateway.PrivateAccessGateway
 import io.legado.app.domain.model.PrivateBiometricStatus
@@ -19,7 +18,6 @@ import splitties.init.appCtx
 
 class PrivateConfigViewModel(
     private val privateAccessGateway: PrivateAccessGateway,
-    private val localPasswordGateway: LocalPasswordGateway,
     private val otherSettingsGateway: OtherSettingsGateway,
 ) : ViewModel() {
 
@@ -71,21 +69,6 @@ class PrivateConfigViewModel(
             is PrivateConfigIntent.StoreBiometricEnvelope ->
                 storeBiometricEnvelope(intent.ciphertext, intent.iv)
 
-            is PrivateConfigIntent.SetPrivateEnabled ->
-                updateSettings { it.copy(enabled = intent.enabled) }
-
-            is PrivateConfigIntent.SetVerifyOnEnterGroup ->
-                updateSettings { it.copy(verifyOnEnterGroup = intent.enabled) }
-
-            is PrivateConfigIntent.SetVerifyOnOpenBook ->
-                updateSettings { it.copy(verifyOnOpenBook = intent.enabled) }
-
-            is PrivateConfigIntent.SetVerifyOnAppStart ->
-                updateSettings { it.copy(verifyOnAppStart = intent.enabled) }
-
-            is PrivateConfigIntent.SetUnlockScope ->
-                updateSettings { it.copy(unlockScope = intent.scope) }
-
             is PrivateConfigIntent.SetBackgroundGraceSeconds ->
                 updateSettings { it.copy(backgroundGraceSeconds = intent.seconds) }
 
@@ -107,14 +90,14 @@ class PrivateConfigViewModel(
                 // 已有密码时，改密码 / 清密码都必须先过一次现有凭据。
                 // 走 gateway 的同一个校验入口，不另开旁路，免得两条校验逻辑漂移。
                 val verified = runCatching {
-                    privateAccessGateway.verifyPassword(currentPassword)
+                    privateAccessGateway.verifyPasswordOnly(currentPassword)
                 }.getOrDefault(false)
                 if (!verified) {
                     showMessageRes(R.string.private_unlock_password_error)
                     return@launch
                 }
             }
-            runCatching { localPasswordGateway.setPassword(password) }
+            runCatching { privateAccessGateway.setPassword(password) }
                 .onSuccess {
                     _uiState.update { it.copy(showPasswordDialog = false) }
                     privateAccessGateway.refreshBiometricStatus()

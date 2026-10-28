@@ -6,8 +6,7 @@ import io.legado.app.R
 import io.legado.app.data.repository.BookRepository
 import io.legado.app.domain.gateway.PrivateAccessGateway
 import io.legado.app.domain.gateway.PrivateContentGateway
-import io.legado.app.domain.model.PrivateBookFacts
-import io.legado.app.domain.model.PrivateUnlockTarget
+import io.legado.app.domain.model.PrivateAccessState
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -19,18 +18,32 @@ import splitties.init.appCtx
 /**
  * 阅读器入口的私密闸门。
  *
- * 私密判定原先只存在于书架卡片与书籍详情页两个 UI 点，于是任何**绕过这两个点**直接进
- * 阅读器的路径（阅读记录、通知栏继续阅读、深链、文件关联、导入完成、音频播放页…）
- * 都能在未授权状态下读到正文。这里把它收敛成阅读器路由入口这一处的唯一闸门，
- * 而不是给每个入口各打一个补丁——后者必然漏。
+ * 私密书只应从私密模式里打开（会话已解锁，闸门直接放行）。这里仍是**唯一闸门**：
+ * 任何绕过私密模式直接进阅读器的路径（阅读记录、通知栏继续阅读、深链、文件关联、
+ * 音频播放页…）在会话未解锁时一律拦下，而不是给每个入口各打一个补丁——后者必然漏。
  */
+sealed interface PrivateReadGateEffect {
+    data class ShowMessage(val message: String) : PrivateReadGateEffect
+    data object NavigateToLocalPasswordSettings : PrivateReadGateEffect
+}
+
 class PrivateReadGateViewModel(
     private val privateContentGateway: PrivateContentGateway,
     private val privateAccessGateway: PrivateAccessGateway,
     private val bookRepository: BookRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(PrivateReadGateUiState())
+    data class UiState(
+        val isChecking: Boolean = true,
+        val bookUrl: String? = null,
+        val isPrivate: Boolean = false,
+        val access: PrivateAccessState = PrivateAccessState(),
+    ) {
+        val isLocked: Boolean
+            get() = !isChecking && bookUrl != null && isPrivate && !access.isSessionUnlocked
+    }
+
+    private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
     private val _effects = MutableSharedFlow<PrivateReadGateEffect>(extraBufferCapacity = 8)
@@ -44,11 +57,6 @@ class PrivateReadGateViewModel(
         viewModelScope.launch {
             privateAccessGateway.state.collect { access ->
                 _uiState.update { it.copy(access = access) }
-            }
-        }
-        viewModelScope.launch {
-            privateAccessGateway.settings.collect { settings ->
-                _uiState.update { it.copy(settings = settings) }
             }
         }
     }
@@ -66,24 +74,22 @@ class PrivateReadGateViewModel(
         viewModelScope.launch {
             val url = bookUrl?.takeIf { it.isNotEmpty() }
                 ?: bookRepository.getLastReadBook()?.bookUrl
-            val facts = url?.let { privateContentGateway.factsOf(it) }
-                ?: PrivateBookFacts(isPrivate = false, groupMask = 0L)
-            _uiState.update { it.copy(isChecking = false, bookUrl = url, facts = facts) }
+            val isPrivate = url?.let { privateContentGateway.isBookPrivate(it) } ?: false
+            _uiState.update { it.copy(isChecking = false, bookUrl = url, isPrivate = isPrivate) }
         }
     }
 
     /**
-     * 应用内密码解锁。
+     * 解锁私密模式会话。
      *
-     * 成功后不需要任何"继续打开"的回调：授权集合变化会让 [PrivateReadGateUiState.isLocked]
+     * 成功后不需要任何"继续打开"的回调：会话状态变化会让 [UiState.isLocked]
      * 自然翻假，内容分支自己就接上了。
      */
     fun submitPassword(password: String) {
-        val target = _uiState.value.target ?: return
         if (password.isEmpty()) return
         viewModelScope.launch {
             val verified = runCatching {
-                privateAccessGateway.verifyPassword(password, target)
+                privateAccessGateway.unlockSession(password)
             }.getOrDefault(false)
             if (!verified) {
                 _effects.tryEmit(
@@ -98,15 +104,5 @@ class PrivateReadGateViewModel(
     /** 没有本地密码就没有解锁路径：只能去设置页设一个 */
     fun openLocalPasswordSettings() {
         _effects.tryEmit(PrivateReadGateEffect.NavigateToLocalPasswordSettings)
-    }
-
-    /**
-     * 离开阅读器即撤销这次的一次性授权。
-     *
-     * 授权范围是"这一次阅读"而不是"这个会话"：不撤的话，回到书架卡片仍是解锁态，
-     * 与"每次打开都要验证"的语义不符。
-     */
-    fun revokeGrant(bookUrl: String) {
-        privateAccessGateway.revoke(PrivateUnlockTarget.Book(bookUrl))
     }
 }

@@ -85,7 +85,13 @@ object Restore : KoinComponent {
     // 恢复时须归一化，否则同一本书会因 deviceId 不同而显示为两条记录。
     private const val LOCAL_READ_RECORD_DEVICE_ID = ""
 
-    suspend fun restore(context: Context, uri: Uri) {
+    suspend fun restore(context: Context, uri: Uri, password: String? = null) {
+        BackupKey.withPassword(password) {
+            restoreInternal(context, uri)
+        }
+    }
+
+    private suspend fun restoreInternal(context: Context, uri: Uri) {
         BackupRestoreLock.withLock {
             LogUtils.d(TAG, "开始恢复备份 uri:$uri")
             val unzipResult = kotlin.runCatching {
@@ -112,13 +118,21 @@ object Restore : KoinComponent {
         }
     }
 
-    suspend fun restoreLocked(path: String) {
+    suspend fun restoreLocked(path: String, password: String? = null) {
         BackupRestoreLock.withLock {
-            restoreUnzipped(path)
+            BackupKey.withPassword(password) {
+                restoreUnzippedInternal(path)
+            }
         }
     }
 
-    internal suspend fun restoreUnzipped(path: String) {
+    internal suspend fun restoreUnzipped(path: String, password: String? = null) {
+        BackupKey.withPassword(password) {
+            restoreUnzippedInternal(path)
+        }
+    }
+
+    private suspend fun restoreUnzippedInternal(path: String) {
         restore(path)
     }
 

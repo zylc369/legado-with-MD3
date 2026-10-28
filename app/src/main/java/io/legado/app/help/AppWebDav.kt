@@ -214,14 +214,14 @@ object AppWebDav {
     }
 
     @Throws(WebDavException::class)
-    suspend fun restoreWebDav(name: String) {
+    suspend fun restoreWebDav(name: String, password: String? = null) {
         authorization?.let {
             val webDav = WebDav(rootWebDavUrl + name, it)
             BackupRestoreLock.withLock {
                 webDav.downloadTo(Backup.zipFilePath, true)
                 FileUtils.delete(Backup.backupPath)
                 ZipUtils.unZipToPath(File(Backup.zipFilePath), Backup.backupPath)
-                Restore.restoreUnzipped(Backup.backupPath)
+                Restore.restoreUnzipped(Backup.backupPath, password)
                 LocalConfig.lastBackup = System.currentTimeMillis()
             }
         }

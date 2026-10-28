@@ -4,99 +4,42 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * 私密模式会话状态（新模型）。
+ *
+ * 解锁语义只有一个：会话（isSessionUnlocked）。它由进入私密模式时的验证置位，
+ * 由退出私密模式 / 切后台宽限期到期 / 进程重启收回——最后一种由"状态只存内存"天然保证。
+ */
 class PrivateAccessTest {
 
     @Test
-    fun `book marked private alone is private`() {
+    fun `biometric shortcut requires both enable and availability`() {
         assertTrue(
-            isPrivateBook(
-                bookUrl = "url-1",
-                group = 0L,
-                privateBookUrls = setOf("url-1"),
-                privateGroupMask = 0L
-            )
+            PrivateAccessState(
+                biometricEnabled = true,
+                biometricStatus = PrivateBiometricStatus.Available
+            ).canUseBiometricShortcut
         )
-    }
-
-    @Test
-    fun `book in private group is private`() {
-        // groupId 用位掩码存放：0b100 表示第 3 个分组
-        assertTrue(
-            isPrivateBook(
-                bookUrl = "url-1",
-                group = 0b100L,
-                privateBookUrls = emptySet(),
-                privateGroupMask = 0b010L or 0b100L
-            )
-        )
-    }
-
-    @Test
-    fun `book outside private groups is public`() {
+        // 开关亮着但设备不可用 / 未录入 / 无硬件：都不能走生物路径
         assertFalse(
-            isPrivateBook(
-                bookUrl = "url-1",
-                group = 0b001L,
-                privateBookUrls = setOf("url-2"),
-                privateGroupMask = 0b100L
-            )
+            PrivateAccessState(
+                biometricEnabled = true,
+                biometricStatus = PrivateBiometricStatus.NotEnrolled
+            ).canUseBiometricShortcut
         )
-    }
-
-    @Test
-    fun `no private source at all keeps everything public`() {
         assertFalse(
-            isPrivateBook(
-                bookUrl = "url-1",
-                group = 0b111L,
-                privateBookUrls = emptySet(),
-                privateGroupMask = 0L
-            )
+            PrivateAccessState(
+                biometricEnabled = false,
+                biometricStatus = PrivateBiometricStatus.Available
+            ).canUseBiometricShortcut
         )
     }
 
-    private fun state(
-        isUnlocked: Boolean = false,
-        grantedBookUrls: Set<String> = emptySet(),
-        grantedGroupIds: Set<Long> = emptySet(),
-    ) = PrivateAccessState(
-        isEnabled = true,
-        isUnlocked = isUnlocked,
-        grantedBookUrls = grantedBookUrls,
-        grantedGroupIds = grantedGroupIds,
-    )
-
     @Test
-    fun `app session unlock grants every target`() {
-        val state = state(isUnlocked = true)
-        assertTrue(state.isTargetGranted("url-1", 0b100L))
-        assertTrue(state.isTargetGranted(null, 0b001L))
-    }
-
-    @Test
-    fun `per target unlock grants only the granted book`() {
-        val state = state(grantedBookUrls = setOf("url-1"))
-        assertTrue(state.isTargetGranted("url-1", 0L))
-        assertFalse(state.isTargetGranted("url-2", 0L))
-    }
-
-    @Test
-    fun `granted group covers the books inside it`() {
-        // 进了已获准的私密分组后，组内书籍不应再逐本验证
-        val state = state(grantedGroupIds = setOf(0b010L))
-        assertTrue(state.isTargetGranted("url-in-group", 0b010L))
-        assertFalse(state.isTargetGranted("url-other-group", 0b100L))
-    }
-
-    @Test
-    fun `union covers both sources at once`() {
-        assertTrue(
-            isPrivateBook(
-                bookUrl = "url-1",
-                group = 0b010L,
-                privateBookUrls = setOf("url-1"),
-                privateGroupMask = 0b010L
-            )
-        )
+    fun `default state is locked and credential-less`() {
+        val state = PrivateAccessState()
+        assertFalse(state.hasPassword)
+        assertFalse(state.isSessionUnlocked)
+        assertFalse(state.canUseBiometricShortcut)
     }
 }

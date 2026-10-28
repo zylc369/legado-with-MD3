@@ -10,8 +10,6 @@ import io.legado.app.data.repository.BookRepository
 import io.legado.app.data.repository.BookshelfRepository
 import io.legado.app.domain.gateway.BookshelfSettingsGateway
 import io.legado.app.domain.gateway.CoverSettingsGateway
-import io.legado.app.domain.gateway.PrivateContentGateway
-import io.legado.app.domain.model.isPrivateBook
 import io.legado.app.domain.model.settings.BookshelfSettings
 import io.legado.app.ui.widget.components.image.cover.bookshelfCoverMemoryCacheKey
 import io.legado.app.ui.widget.components.image.cover.buildCoverImageRequest
@@ -130,7 +128,6 @@ class BookshelfCoverPreloader(
     private val bookshelfRepository: BookshelfRepository,
     private val bookshelfSettingsGateway: BookshelfSettingsGateway,
     private val coverSettingsGateway: CoverSettingsGateway,
-    private val privateContentGateway: PrivateContentGateway,
 ) {
 
     /**
@@ -202,15 +199,9 @@ class BookshelfCoverPreloader(
         settings: BookshelfSettings,
         layout: FirstScreenLayout,
     ): List<CoverPreloadTarget> {
-        // 排序输入与书架完全一致：分组取 flowShow（书架的 groupsFlow），
-        // 私密掩码取 flowAll（书架的 allGroupsFlow），两边都用同一个纯函数判定
+        // 排序输入与书架完全一致：分组取 flowShow（书架的 groupsFlow）
         val showGroups = bookGroupRepository.flowShow().first()
-        val allGroups = bookGroupRepository.flowAll().first()
         val group: BookGroup? = showGroups.find { it.groupId == groupId }
-        val privateBookUrls = privateContentGateway.flowPrivateBookUrls().first()
-        val privateGroupMask = allGroups.fold(0L) { acc, it ->
-            if (it.groupId > 0 && it.isPrivate) acc or it.groupId else acc
-        }
 
         val candidates = bookshelfRepository.sortBooks(
             list = bookRepository.flowBookShelfByGroup(groupId).first(),
@@ -218,8 +209,7 @@ class BookshelfCoverPreloader(
             sort = settings.bookshelfSort,
             sortOrder = settings.bookshelfSortOrder,
         ).asSequence()
-            // 锁定态的卡片用的是另一套内存键，预热清晰封面既无用也只是白解码
-            .filterNot { isPrivateBook(it.bookUrl, it.group, privateBookUrls, privateGroupMask) }
+            // 公开查询已在 SQL 层排除私密书，这里无需再过滤
             .mapNotNull { it.toCoverPreloadCandidate() }
             .toList()
 

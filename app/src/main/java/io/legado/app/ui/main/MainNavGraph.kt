@@ -135,6 +135,7 @@ import io.legado.app.ui.config.downloadCacheConfig.DownloadCacheConfigRouteScree
 import io.legado.app.ui.config.labConfig.LabConfigRouteScreen
 import io.legado.app.ui.config.otherConfig.OtherConfigRouteScreen
 import io.legado.app.ui.config.privateConfig.PrivateConfigRouteScreen
+import io.legado.app.feature.privateshelf.PrivateShelfRouteScreen
 import io.legado.app.ui.config.readConfig.ReadConfigRouteScreen
 import io.legado.app.ui.config.themeConfig.ThemeConfigRouteScreen
 import io.legado.app.ui.config.themeManage.ThemeManageRouteScreen
@@ -441,6 +442,9 @@ fun MainActivity.mainEntryProvider(
             onNavigateToBookCacheManage = {
                 onNavigateToRoute(MainRouteBookCacheManage)
             },
+            onOpenPrivateMode = {
+                onNavigateToRoute(MainRoutePrivateShelf)
+            },
             onOpenBookshelfBook = { book, sharedCoverKey ->
                 if (book.isAudio) {
                     onNavigateToRoute(
@@ -683,6 +687,27 @@ fun MainActivity.mainEntryProvider(
         PrivateVerifyGate(onCancel = { onNavigateBack() }) {
             PrivateConfigRouteScreen(onBackClick = { onNavigateBack() })
         }
+    }
+
+    entry<MainRoutePrivateShelf> {
+        PrivateShelfRouteScreen(
+            onBackClick = { onNavigateBack() },
+            onOpenBook = { book ->
+                if (book.isAudio) {
+                    onNavigateToRoute(
+                        MainRouteAudioPlay(bookUrl = book.bookUrl, sharedCoverKey = null)
+                    )
+                } else if (!book.isLocal && book.isImage && showMangaUi) {
+                    onNavigateToRoute(
+                        MainRouteReadManga(bookUrl = book.bookUrl, sharedCoverKey = null)
+                    )
+                } else {
+                    onNavigateToRoute(
+                        MainRouteReadBook(bookUrl = book.bookUrl, sharedCoverKey = null)
+                    )
+                }
+            },
+        )
     }
 
     entry<MainRouteSettingsCustomTheme> {

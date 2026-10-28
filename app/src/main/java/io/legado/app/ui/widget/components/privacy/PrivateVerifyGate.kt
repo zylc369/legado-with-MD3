@@ -95,8 +95,7 @@ fun PrivateVerifyGate(
         }
     }
 
-    // 总开关关掉时这一页不拦——否则关掉之后就再也进不去把它打开了
-    val requiresVerification = access.isEnabled && access.hasPassword && !verified
+    val requiresVerification = access.hasPassword && !verified
 
     if (!requiresVerification) {
         content()

@@ -5,11 +5,11 @@ import io.legado.app.domain.gateway.BackupRestoreGateway
 class BackupRestoreUseCase(
     private val gateway: BackupRestoreGateway,
 ) {
-    suspend fun backup(path: String?, mode: String) {
-        gateway.backup(path, mode)
+    suspend fun backup(path: String?, mode: String, password: String? = null) {
+        gateway.backup(path, mode, password)
     }
 
-    suspend fun restoreLocal(uri: String) {
-        gateway.restoreLocal(uri)
+    suspend fun restoreLocal(uri: String, password: String? = null) {
+        gateway.restoreLocal(uri, password)
     }
 }

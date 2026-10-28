@@ -7,8 +7,8 @@ interface WebDavBackupGateway {
 
     suspend fun syncConfig()
     suspend fun test(): Boolean
-    suspend fun backup()
+    suspend fun backup(password: String? = null)
     suspend fun getBackupNames(): List<String>
     suspend fun getLatestBackup(): WebDavBackup?
-    suspend fun restore(name: String)
+    suspend fun restore(name: String, password: String? = null)
 }

@@ -54,6 +54,7 @@ import io.legado.app.help.RuleBigDataHelp
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfigStore
 import io.legado.app.help.config.AppConfig
+import io.legado.app.data.repository.PrivateGroupMigrator
 import io.legado.app.help.config.LocalConfig
 import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.help.config.ThemeConfigStore
@@ -73,6 +74,7 @@ import io.legado.app.utils.LogUtils
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isDebuggable
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -136,6 +138,19 @@ class App : Application(), SingletonImageLoader.Factory {
         )
         if (legacyLanguage != null) {
             get<AppLocaleGateway>().migrateLegacyLanguage(legacyLanguage)
+        }
+        // 私密分组→单本私密 的一次性迁移：必须先于任何私密判定（书架查询/AI 守卫）执行。
+        // 语句极小（一次 SUM + 两次 UPDATE）且仅首个升级启动发生，同步等待换确定性；
+        // 已迁移过的启动再后台复查一次——恢复旧备份会把私密分组重新带回库
+        runBlocking {
+            runCatching {
+                get<PrivateGroupMigrator>().migrateIfNeeded()
+                get<PrivateGroupMigrator>().migrateLegacyGraceIfNeeded()
+                get<PrivateGroupMigrator>().migratePrivatePasswordIfNeeded()
+            }
+        }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { get<PrivateGroupMigrator>().recheckIfNeeded() }
         }
         applyDayNightInit(this)
         if (getPrefString("app_theme", "0") == "12") {

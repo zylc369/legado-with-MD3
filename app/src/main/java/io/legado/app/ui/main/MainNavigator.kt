@@ -147,7 +147,10 @@ object MainNavigator {
             is MainRouteReadManga -> {
                 if (
                     currentRoute == MainRouteHome ||
-                    currentRoute is MainRouteBookInfo
+                    currentRoute is MainRouteBookInfo ||
+                    // 私密模式是"另一个书架"：阅读器叠在它上面，返回必须回到私密模式，
+                    // 不能走清栈策略把人丢回公开书架（还会销毁会话页导致验证页闪回）
+                    currentRoute == MainRoutePrivateShelf
                 ) {
                     backStack.add(route)
                 } else {
@@ -167,7 +170,8 @@ object MainNavigator {
                     backStack[existingAudioIndex] = route
                 } else if (
                     currentRoute == MainRouteHome ||
-                    currentRoute is MainRouteBookInfo
+                    currentRoute is MainRouteBookInfo ||
+                    currentRoute == MainRoutePrivateShelf
                 ) {
                     backStack.add(route)
                 } else {
