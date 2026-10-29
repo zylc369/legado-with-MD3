@@ -72,6 +72,7 @@ class CustomTtsSettingsRepository : CustomTtsSettingsGateway {
             fallbackSpeakerId = h?.string("fallbackSpeakerId").orEmpty(),
             fallbackSpeed = h?.float("fallbackSpeed", 1.0f) ?: 1.0f,
             customSpeed = h?.float("customSpeed", 1.0f) ?: 1.0f,
+            localSpeed = h?.bool("localSpeed", true) ?: true,
         )
 
         val stairs = root.getAsJsonArray("segmentStairs")

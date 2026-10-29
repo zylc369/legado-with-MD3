@@ -103,6 +103,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -554,10 +555,25 @@ fun ReadBookRouteScreen(
     // ── Search result collection (from Navigation3 search route) ──────
 
     LaunchedEffect(viewModel, lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // STARTED 而非 RESUMED：搜索叠层还盖在阅读器上时（阅读器处于 STARTED）
+            // 就消费点击结果并完成跳转，弹栈只是"揭开"已经定位好的阅读器；
+            // 不再把跳转押在"弹栈+生命周期回 RESUMED"这条会丢事件的时序上。
             SearchContentResult.results.collect { result ->
-                effectsReady.await()
+                if (!effectsReady.isCompleted) {
+                    val ready = withTimeoutOrNull(1_000) { effectsReady.await() }
+                    if (ready == null) {
+                        // await 卡死只可能出现在组合被替换的竞态里；超时后继续，
+                        // 最坏情况是首个效果丢失——比整条链路永久挂起好。
+                        AppLog.putDebug("搜索定位: effectsReady 等待超时(继续执行)")
+                    }
+                }
+                AppLog.putDebug(
+                    "搜索定位: 收到事件 book=${result.bookUrl.takeLast(12)}" +
+                        " 当前=${ReadBook.book?.bookUrl?.takeLast(12)}"
+                )
                 if (result.bookUrl != ReadBook.book?.bookUrl) {
+                    AppLog.putDebug("搜索定位: bookUrl 不匹配，丢弃")
                     SearchContentResult.resetReplayCache()
                     return@collect
                 }
@@ -568,6 +584,7 @@ fun ReadBookRouteScreen(
                     }
 
                     is SearchContentResult.Result -> {
+                        AppLog.putDebug("搜索定位: 派发导航 index=${result.index}")
                         viewModel.onIntent(
                             ReadBookIntent.SetSearchResults(
                                 result.searchResults,

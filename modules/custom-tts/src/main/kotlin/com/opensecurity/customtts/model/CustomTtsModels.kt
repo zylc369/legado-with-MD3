@@ -20,7 +20,13 @@ data class CustomTtsSegment(
 
 /** 混合朗读配置。 */
 data class HybridTtsConfig(
+    /**
+     * 首段兜底开关（沿用既有 JSON 键，不迁移）：true = 起播段未就绪立即兜底；
+     * false = 起播段阻塞等待远端（超时才落兜底）。策略层不再消费，仅驱动层读取。
+     */
     val firstSegmentFallback: Boolean = true,
+    /** 本地调速：开启时远端一律按 1.0x 合成，"定制速度"只调本地播放比值。 */
+    val localSpeed: Boolean = true,
     val remoteTimeoutMs: Int = 10_000,
     val fallbackEngineType: String = "system",
     val fallbackEngineId: String = "",

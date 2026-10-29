@@ -358,6 +358,10 @@ class ReadBookController(
     private var composeSelection: ReaderSelection? = null
     private var searchSelection: ReaderSelection? = null
     private var pendingSearchNavigation: ReadBookEffect.NavigateToSearchResult? = null
+    private var pendingSearchNavigationAtMs = 0L
+
+    /** 挂起导航有效期：目标章装载失败或用户放弃后，残留导航不得劫持之后手动进入的同一章。 */
+    private val pendingSearchNavigationTtlMs = 15_000L
     private var composeVisibleBodyTextPositionProvider: (() -> ReaderVisibleTextPosition?)? = null
     private var composeImageClickAt = 0L
     private var composeImageDoubleClick = false
@@ -1090,9 +1094,32 @@ class ReadBookController(
             delay(80)
             ReaderPerfTrace.marker("input.coalesced")
             pendingSearchNavigation?.let { navigation ->
-                ReadBook.readerChapterInputWindow.current
+                if (System.currentTimeMillis() - pendingSearchNavigationAtMs >
+                    pendingSearchNavigationTtlMs
+                ) {
+                    AppLog.putDebug(
+                        "搜索定位: 挂起导航过期放弃（>${pendingSearchNavigationTtlMs}ms 未等到目标章）"
+                    )
+                    pendingSearchNavigation = null
+                    return@let
+                }
+                val input = ReadBook.readerChapterInputWindow.current
                     ?.takeIf { it.chapter.index == navigation.result.chapterIndex }
-                    ?.let { resolveSearchNavigation(navigation, it) }
+                if (input != null) {
+                    AppLog.putDebug(
+                        "搜索定位: 合并窗口解析 pending=章${navigation.result.chapterIndex}"
+                    )
+                    resolveSearchNavigation(navigation, input)
+                } else {
+                    // 目标章输入未到（openChapter 先 clearTextChapter 清空窗口、内容还在
+                    // 装载）：保留挂起导航，等目标章输入发布后的下一个合并窗口再解析。
+                    // 这里绝不能丢弃——实测章节装载耗时超过首个合并窗口，
+                    // 之前"输入不是目标章就丢弃"把跨章跳转永远留在了章首。
+                    AppLog.putDebug(
+                        "搜索定位: 合并窗口等待 pending=章${navigation.result.chapterIndex}" +
+                            " 当前输入=章${ReadBook.readerChapterInputWindow.current?.chapter?.index}"
+                    )
+                }
             }
             publishReaderPageWindow()
         }
@@ -1120,6 +1147,10 @@ class ReadBookController(
             ),
             title = searchTitle,
         ) ?: run {
+            AppLog.putDebug(
+                "搜索定位: 匹配失败（静默丢弃）query=$query 直引=${result.queryIndexInChapter}" +
+                    " 内容长=${input.source.semanticContent.length} 标题=${searchTitle != null}"
+            )
             pendingSearchNavigation = null
             return
         }
@@ -1133,6 +1164,11 @@ class ReadBookController(
         searchSelection = selection
         val bodyPosition = if (match.isTitle) 0 else match.start
         ReadBook.updateReadingPosition(bodyPosition)
+        val pagesReady = directReaderPages.any { it.id.chapterIndex == result.chapterIndex }
+        AppLog.putDebug(
+            "搜索定位: 命中 start=${match.start} len=${match.length} 标题命中=${match.isTitle}" +
+                " 正文位=$bodyPosition 页就绪=$pagesReady durPos=${ReadBook.durChapterPos}"
+        )
         directReaderPages.takeIf { pages ->
             pages.any { it.id.chapterIndex == result.chapterIndex }
         }?.let { pages ->
@@ -2377,23 +2413,28 @@ class ReadBookController(
             is ReadBookEffect.TextActionSpeak -> speak(effect.text)
             is ReadBookEffect.NavigateToSearchResult -> {
                 pendingSearchNavigation = effect
+                pendingSearchNavigationAtMs = System.currentTimeMillis()
                 val result = effect.result
                 val currentInput = ReadBook.readerChapterInputWindow.current
                     ?.takeIf { it.chapter.index == result.chapterIndex }
+                AppLog.putDebug(
+                    "搜索定位: 控制器处理 目标章=${result.chapterIndex}" +
+                        " 当前输入章=${ReadBook.readerChapterInputWindow.current?.chapter?.index}" +
+                        " 同章=${currentInput != null}"
+                )
                 if (currentInput != null) {
                     resolveSearchNavigation(effect, currentInput)
                     publishReaderPageWindow()
                 } else {
-                    // 定位只对本次跳章有效；openChapter 成功仍未消费时放弃，
-                    // 避免挂起导航在用户之后主动进入同一章时劫持阅读位置
+                    // 定位只对本次跳章有效：等目标章输入发布后（readerChapterInputChanged 的
+                    // 合并窗口）再解析正文偏移；这里不能在 openChapter 的 success 里清空，
+                    // 它早于该窗口触发，会吞掉跨章跳转
                     ReadBook.openChapter(
                         result.chapterIndex,
                         // Search offsets may include a title prefix. The body offset is resolved
                         // after the cached chapter input has been published.
                         0,
-                    ) {
-                        pendingSearchNavigation = null
-                    }
+                    )
                 }
             }
 

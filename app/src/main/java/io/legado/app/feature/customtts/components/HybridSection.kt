@@ -24,7 +24,13 @@ import io.legado.app.feature.customtts.CustomTtsIntent
 import io.legado.app.feature.customtts.CustomTtsUiState
 import io.legado.app.ui.widget.components.settingItem.TinySliderSettingItem
 
-/** 混合朗读配置区块（首段兜底/兜底引擎与音色/双速度/超时）。 */
+/** 倍速显示：保留到 0.01，去掉多余的尾零（0.95→"0.95"，0.9→"0.9"，1.0→"1.0"）。 */
+internal fun formatSpeed(value: Float): String {
+    val two = "%.2f".format(value)
+    return if (two.endsWith('0')) "%.1f".format(value) else two
+}
+
+/** 混合朗读配置区块（首段兜底/兜底引擎与音色/双速度/本地调速/超时）。 */
 @Composable
 fun HybridSection(
     state: CustomTtsUiState,
@@ -42,6 +48,11 @@ fun HybridSection(
             Spacer(Modifier.width(8.dp))
             Text("首段兜底 TTS")
         }
+        Text(
+            "开启：起播段未就绪立即用兜底（不等待）；关闭：起播段阻塞等待远端合成，超时才落兜底。其余段仍是无缝切换。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         OptionPicker(
             label = "兜底引擎",
             value = state.fallbackEngines
@@ -65,27 +76,44 @@ fun HybridSection(
         )
 
         TinySliderSettingItem(
-            title = "兜底速度 %.1fx".format(state.fallbackSpeed),
+            title = "兜底速度 ${formatSpeed(state.fallbackSpeed)}x",
             value = state.fallbackSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 24,
+            // 拖动条连续（steps=0），写入经 quantize 落到 0.01 网格：可设 0.95/0.92 这类值；
+            // +/- 每次步进 0.1，吸附网格同样 0.01，从 0.92 按 + 到 1.02 而不是被拽回 0.1 格。
+            steps = 0,
             stepSize = 0.1f,
+            stepSnapSize = 0.01f,
+            valueMinWidth = 52.dp,
             showDecimal = true,
-            valueFormat = { "%.1f".format(it) },
+            valueFormat = { formatSpeed(it) },
             onValueChange = { onIntent(CustomTtsIntent.SetFallbackSpeed(it)) },
         )
         TinySliderSettingItem(
-            title = "定制速度 %.1fx".format(state.customSpeed),
+            title = "定制速度 ${formatSpeed(state.customSpeed)}x",
             value = state.customSpeed,
             valueRange = 0.5f..3.0f,
-            steps = 24,
+            steps = 0,
             stepSize = 0.1f,
+            stepSnapSize = 0.01f,
+            valueMinWidth = 52.dp,
             showDecimal = true,
-            valueFormat = { "%.1f".format(it) },
+            valueFormat = { formatSpeed(it) },
             onValueChange = { onIntent(CustomTtsIntent.SetCustomSpeed(it)) },
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = state.localSpeed,
+                onCheckedChange = { onIntent(CustomTtsIntent.SetLocalSpeed(it)) },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("本地调速")
+        }
         Text(
-            "混合模式下以上两个速度就是最终倍速；全局朗读语速不参与。",
+            "混合模式下以上两个速度就是最终倍速；全局朗读语速不参与。" +
+                "拖动条精度 0.01（如 0.95x），加减号步进 0.1。\n" +
+                "本地调速开启：定制速度只调本地播放，远端按 1.0x 合成（缓存跨速度复用）；" +
+                "关闭：定制速度随请求发给远端。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

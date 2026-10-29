@@ -58,6 +58,7 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import io.legado.app.R
@@ -290,6 +291,10 @@ fun TinySliderSettingItem(
     color: Color? = LegadoTheme.colorScheme.surfaceContainerLow,
     enabled: Boolean = true,
     stepSize: Float = 1f,
+    /** [io.legado.app.ui.widget.components.ValueStepper] 的吸附网格（默认=步长）。 */
+    stepSnapSize: Float? = null,
+    /** 值卡最小宽度（容下多位小数）。 */
+    valueMinWidth: Dp? = null,
     showDecimal: Boolean = false,
     valueFormat: ((Float) -> String)? = null,
     onValueChange: (Float) -> Unit,
@@ -329,6 +334,8 @@ fun TinySliderSettingItem(
                 },
                 enabled = enabled,
                 stepSize = stepSize,
+                snapSize = stepSnapSize ?: stepSize,
+                displayMinWidth = valueMinWidth,
                 showDecimal = showDecimal,
                 valueFormat = valueFormat,
             )

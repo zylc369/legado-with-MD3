@@ -7,9 +7,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 /**
  * Singleton bus for passing search results from [SearchContentScreen] back to the reader.
  *
- * Uses [MutableSharedFlow] with `replay = 1` so the reader entry receives the result
- * even if it subscribes after the emission (the reader entry is not composed while
- * the search route is on top of the NavDisplay back stack).
+ * Uses [MutableSharedFlow] with `replay = 1` so the reader receives the result even
+ * if it subscribes after the emission. 搜索叠层盖在阅读器上时阅读器保持组合（STARTED），
+ * 收集器在此状态即可消费；replay 兜底组合尚未就绪或 Activity 重建恢复的场景。
  */
 object SearchContentResult {
 

@@ -34,6 +34,7 @@ class CustomTtsSettingsRepositoryTest {
         repo.update {
             it.copy(
                 defaultVoiceId = "v1",
+                hybrid = it.hybrid.copy(localSpeed = false, firstSegmentFallback = false),
                 segmentStairs = listOf(30, 60, 80),
                 voices = mapOf("v1" to com.opensecurity.customtts.model.CustomTtsVoiceParams(
                     voiceId = "v1", displayName = "小北", speed = 1.2f,
@@ -48,6 +49,9 @@ class CustomTtsSettingsRepositoryTest {
         assertEquals("小北", again.currentSettings.voices["v1"]?.displayName)
         assertEquals("轻声", again.currentSettings.voices["v1"]?.instruct)
         assertEquals(7, again.currentSettings.voices["v1"]?.seed)
+        // localSpeed/首段开关必须随 JSON 持久化：只写不读会让重启后回落默认值
+        assertEquals(false, again.currentSettings.hybrid.localSpeed)
+        assertEquals(false, again.currentSettings.hybrid.firstSegmentFallback)
     }
 
     @Test

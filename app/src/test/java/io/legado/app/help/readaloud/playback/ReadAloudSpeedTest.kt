@@ -115,13 +115,18 @@ class ReadAloudSpeedTest {
     }
 
     @Test
-    fun `倍速收敛到0_1网格消除浮点误差`() {
+    fun `倍速收敛到0_01网格消除浮点误差`() {
         assertEquals(0.7f, ReadAloudSpeed.quantize(0.6999999f), 0.0001f)
         assertEquals(0.7f, ReadAloudSpeed.quantize(0.70000005f), 0.0001f)
         assertEquals(0.8f, ReadAloudSpeed.quantize(0.7999999f), 0.0001f)
         assertEquals(0.5f, ReadAloudSpeed.quantize(0f), 0.0001f)
         assertEquals(3.0f, ReadAloudSpeed.quantize(99f), 0.0001f)
         assertEquals(1.0f, ReadAloudSpeed.quantize(Float.NaN), 0.0001f)
+        // 定制引擎速度支持百分位：0.95/0.92/0.88 不得被四舍五入到 0.1 网格
+        assertEquals(0.95f, ReadAloudSpeed.quantize(0.9499999f), 0.0001f)
+        assertEquals(0.92f, ReadAloudSpeed.quantize(0.92f), 0.0001f)
+        assertEquals(0.88f, ReadAloudSpeed.quantize(0.88000001f), 0.0001f)
+        assertEquals(1.02f, ReadAloudSpeed.quantize(1.0199999f), 0.0001f)
     }
 
     @Test

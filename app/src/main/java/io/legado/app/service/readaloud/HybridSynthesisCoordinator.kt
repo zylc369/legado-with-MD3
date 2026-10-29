@@ -75,6 +75,9 @@ class HybridSynthesisCoordinator(
     private val fallbackJobs = HashMap<Int, Deferred<File?>>()
     private val remoteBakedSpeeds = HashMap<Int, Float>()
     private val fallbackBakedSpeeds = HashMap<Int, Float>()
+    private val prewarmLock = Any()
+    private val prewarmJobs = ArrayList<Deferred<File?>>()
+    private val prewarmedTexts = HashSet<String>()
 
     /** 远端健康状态（跨段共享；网络故障不是段级的，逐段重试只会堆叠超时）。 */
     private val remoteHealthLock = Any()
@@ -99,6 +102,54 @@ class HybridSynthesisCoordinator(
     /** 预取（只调度，不等待）。 */
     fun prefetch(index: Int) {
         schedule(index)
+    }
+
+    /**
+     * 阻塞等待该段远端音频（首段不降级语义）：作业自带超时预算，
+     * 返回 null = 超时/失败，由调用方落兜底。
+     */
+    suspend fun awaitRemote(index: Int): HybridSegmentAudio? {
+        if (index !in texts.indices) return null
+        schedule(index)
+        val job = remoteJobs[index] ?: return null
+        val file = try {
+            job.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return HybridSegmentAudio(file, remoteBakedSpeeds[index] ?: 1f)
+    }
+
+    /**
+     * 跨章预热：为下一章的开头文本提前发起远端合成，结果落进 md5 文件缓存；
+     * 换章重建协调器后 [remoteReady] 的缓存探测路径直接命中，无缝衔接。
+     * 与段请求共用串行闸门与超时预算，不占章节内预取的名额。
+     */
+    fun prewarm(texts: List<String>) {
+        val params = remoteParams()
+        val timeoutMs = remoteTimeoutMs()
+        texts.filter { it.isNotBlank() }.forEach { text ->
+            synchronized(prewarmLock) {
+                if (text in prewarmedTexts) return@synchronized
+                prewarmedTexts.add(text)
+                prewarmJobs.add(
+                    scope.async(ioDispatcher) {
+                        val cached = remoteCacheProbe
+                            ?.let { probe -> runCatching { probe(text, params) }.getOrNull() }
+                        if (cached != null) {
+                            log("混合TTS: 预热缓存命中 ${text.length}字")
+                            cached
+                        } else {
+                            remoteGate.withPermit {
+                                synthesizeRemote("预热", text, params, timeoutMs)
+                            }
+                        }
+                    }
+                )
+            }
+        }
     }
 
     /** 非阻塞读取：该段远端已就绪则返回音频（含烘焙速度），否则 null。 */
@@ -136,6 +187,11 @@ class HybridSynthesisCoordinator(
     fun stop() {
         remoteJobs.values.forEach { it.cancel() }
         fallbackJobs.values.forEach { it.cancel() }
+        synchronized(prewarmLock) {
+            prewarmJobs.forEach { it.cancel() }
+            prewarmJobs.clear()
+            prewarmedTexts.clear()
+        }
         remoteJobs.clear()
         fallbackJobs.clear()
         remoteBakedSpeeds.clear()
@@ -205,7 +261,7 @@ class HybridSynthesisCoordinator(
                     cached
                 } else {
                     remoteGate.withPermit {
-                        synthesizeRemote(index, segment, params, timeoutMs)
+                        synthesizeRemote("$index", segment, params, timeoutMs)
                     }
                 }
             }
@@ -234,7 +290,7 @@ class HybridSynthesisCoordinator(
     }
 
     private suspend fun synthesizeRemote(
-        index: Int,
+        label: String,
         segment: String,
         params: CustomTtsVoiceParams,
         timeoutMs: Long,
@@ -245,7 +301,7 @@ class HybridSynthesisCoordinator(
             withTimeout(effectiveTimeoutMs) { remoteSynth(segment, params) }
         } catch (e: TimeoutCancellationException) {
             val elapsed = System.currentTimeMillis() - startedAt
-            log("混合TTS: 段 $index 远程超时（${elapsed}ms/限制${effectiveTimeoutMs}ms）")
+            log("混合TTS: 段 $label 远程超时（${elapsed}ms/限制${effectiveTimeoutMs}ms）")
             null
         } catch (e: CancellationException) {
             // 章节切换/停止触发的取消：不是合成失败，向上传播。
@@ -253,16 +309,16 @@ class HybridSynthesisCoordinator(
         } catch (e: Exception) {
             val elapsed = System.currentTimeMillis() - startedAt
             // 堆栈由合成分派层（HttpReadAloudService）记录一次即可，避免重复落盘。
-            log("混合TTS: 段 $index 远程合成失败（${elapsed}ms）: ${e.localizedMessage}")
+            log("混合TTS: 段 $label 远程合成失败（${elapsed}ms）: ${e.localizedMessage}")
             null
         }
         val elapsed = System.currentTimeMillis() - startedAt
         if (result != null) {
             onRemoteSuccess()
-            log("混合TTS: 段 $index 远程就绪（${elapsed}ms）${result.name} (${result.length()}B)")
+            log("混合TTS: 段 $label 远程就绪（${elapsed}ms）${result.name} (${result.length()}B)")
         } else {
             onRemoteFailure()
-            log("混合TTS: 段 $index 远程无结果（${elapsed}ms）")
+            log("混合TTS: 段 $label 远程无结果（${elapsed}ms）")
         }
         return result
     }

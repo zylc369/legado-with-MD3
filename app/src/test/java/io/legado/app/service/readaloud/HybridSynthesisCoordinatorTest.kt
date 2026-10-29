@@ -103,7 +103,88 @@ class HybridSynthesisCoordinatorTest {
     }
 
     @Test
-    fun `首段兜底开关开启时强制兜底`() = runTest(UnconfinedTestDispatcher()) {
+    fun `awaitRemote 等待并返回远端文件`() = runTest(UnconfinedTestDispatcher()) {
+        val remote = temp("remote")
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> delay(100); remote },
+            fallbackSynth = { _, _ -> null },
+        )
+        coordinator.start(listOf("a"))
+        // 不预取：awaitRemote 自行调度并等待完成
+        assertEquals(remote, coordinator.awaitRemote(0)?.file)
+    }
+
+    @Test
+    fun `awaitRemote 合成超时返回 null`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> delay(60_000); temp("never") },
+            fallbackSynth = { _, _ -> null },
+        )
+        coordinator.start(listOf("a"))
+        // 远端超时预算 = max(1000, 6s+120ms/字)，虚拟时间直接越过
+        assertNull(coordinator.awaitRemote(0))
+    }
+
+    @Test
+    fun `awaitRemote 越界索引返回 null`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator(
+            policy = policy(),
+            remoteSynth = { _, _ -> temp("remote") },
+            fallbackSynth = { _, _ -> null },
+        )
+        coordinator.start(listOf("a"))
+        assertNull(coordinator.awaitRemote(9))
+    }
+
+    @Test
+    fun `prewarm 相同文本去重且缓存探测走快路径`() = runTest(UnconfinedTestDispatcher()) {
+        val cached = temp("cached")
+        val probed = mutableListOf<String>()
+        val synthesized = mutableListOf<String>()
+        val coordinator = HybridSynthesisCoordinator(
+            scope = this,
+            policy = policy(),
+            remoteTimeoutMs = { 1_000 },
+            remoteParams = { CustomTtsVoiceParams() },
+            fallbackSpeed = { 1f },
+            remoteSynth = { text, _ -> synthesized.add(text); temp("synth") },
+            fallbackSynth = { _, _ -> null },
+            remoteCacheProbe = { text, _ -> probed.add(text); cached },
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
+        coordinator.start(listOf("章内正文"))
+        // 跨章预热：含重复文本与空白文本，只有去重后的有效文本会发起
+        coordinator.prewarm(listOf("下一章标题", "下一章标题", "  ", "首段"))
+        advanceUntilIdle()
+        assertEquals(listOf("下一章标题", "首段"), probed)
+        // 缓存命中（含预热命中）不发起远端合成
+        assertTrue(synthesized.isEmpty())
+    }
+
+    @Test
+    fun `prewarm 缓存未命中走远端合成`() = runTest(UnconfinedTestDispatcher()) {
+        val synthesized = mutableListOf<String>()
+        val coordinator = HybridSynthesisCoordinator(
+            scope = this,
+            policy = policy(),
+            remoteTimeoutMs = { 1_000 },
+            remoteParams = { CustomTtsVoiceParams() },
+            fallbackSpeed = { 1f },
+            remoteSynth = { text, _ -> synthesized.add(text); temp("synth") },
+            fallbackSynth = { _, _ -> null },
+            remoteCacheProbe = { _, _ -> null },
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
+        coordinator.start(listOf("章内正文"))
+        coordinator.prewarm(listOf("下一章标题"))
+        advanceUntilIdle()
+        assertEquals(listOf("下一章标题"), synthesized)
+    }
+
+    @Test
+    fun `首段开关只影响驱动层等待就绪即远程`() = runTest(UnconfinedTestDispatcher()) {
         val coordinator = coordinator(
             policy = policy(firstFallback = true),
             remoteSynth = { _, _ -> temp("remote") },
@@ -111,7 +192,9 @@ class HybridSynthesisCoordinatorTest {
         )
         coordinator.start(listOf("a"))
         coordinator.prefetch(0)
-        assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = true))
+        // 开关语义已上移：远端就绪一律远程；未就绪由驱动层决定等待或立即兜底
+        assertEquals(HybridTtsDecision.Remote, coordinator.decide(0, remoteReady = true))
+        assertEquals(HybridTtsDecision.Fallback, coordinator.decide(0, remoteReady = false))
     }
 
     @Test

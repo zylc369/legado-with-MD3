@@ -9,7 +9,8 @@ import com.opensecurity.customtts.model.HybridTtsSwitch
  *
  * 语义:
  * - 每段播放前判定远程是否就绪；未就绪用兜底，远程请求继续在途
- * - 首段（[HybridTtsConfig.firstSegmentFallback] 开启）强制兜底
+ * - 远端就绪一律用远程：[HybridTtsConfig.firstSegmentFallback] 不再强制首段兜底，
+ *   它的语义上移为驱动层的"首段是否阻塞等待远端"（关闭=等待远端就绪或超时）
  * - 远端恢复后下一段自然切回；不锁定
  * - 切换事件防抖（默认 5s 内同方向只报一次）
  */
@@ -28,7 +29,6 @@ class HybridTtsPolicy(
      */
     fun decide(segmentIndex: Int, remoteReady: Boolean): HybridTtsDecision {
         val decision = when {
-            segmentIndex == 0 && config.firstSegmentFallback -> HybridTtsDecision.Fallback
             remoteReady -> HybridTtsDecision.Remote
             else -> HybridTtsDecision.Fallback
         }

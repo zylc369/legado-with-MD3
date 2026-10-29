@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.SearchContentHistory
 import io.legado.app.ui.main.LocalSearchOverlayAnimation
 import io.legado.app.ui.theme.LegadoTheme
@@ -95,7 +96,10 @@ fun SearchContentRouteScreen(
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
-                SearchContentEffect.NavigateBack -> onBack()
+                SearchContentEffect.NavigateBack -> {
+                    AppLog.putDebug("搜索定位: 消费NavigateBack,执行弹栈")
+                    onBack()
+                }
             }
         }
     }

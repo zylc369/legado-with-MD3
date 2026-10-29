@@ -2,6 +2,7 @@ package io.legado.app.help.readaloud.playback
 
 import io.legado.app.domain.model.readaloud.SystemTtsVoiceConfig
 import io.legado.app.utils.GSON
+import kotlin.math.round
 import kotlin.math.roundToInt
 
 /**
@@ -33,13 +34,14 @@ object ReadAloudSpeed {
     }
 
     /**
-     * 把任意浮点倍速收敛到 0.1 网格。
+     * 把任意浮点倍速收敛到 0.01 网格（0.95/0.92 这类百分位值）。
      *
-     * Compose Slider 的 steps 只是几何约束，实际值是浮点插值；0.6999999 这类值
-     * 直接显示/持久化会泄漏二进制误差。所有倍速状态写入前都经过这里。
+     * Compose Slider 的拖动是浮点插值；直接显示/持久化会泄漏二进制误差。
+     * 当前只有定制引擎速度（Float 存储）经过这里；全局倍速仍走 tenths 整数持久化。
      */
     fun quantize(multiplier: Float): Float =
-        if (!multiplier.isFinite()) 1f else fromTenths(toTenths(multiplier))
+        if (!multiplier.isFinite()) 1f
+        else (round(multiplier * 100f) / 100f).coerceIn(0.5f, 3.0f)
 
     /** 文件/流播放端倍速；跟随系统时固定 1.0。 */
     fun globalPlaybackSpeed(globalTenths: Int, followSystem: Boolean): Float =

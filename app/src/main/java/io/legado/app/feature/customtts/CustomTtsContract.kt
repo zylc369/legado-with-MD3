@@ -59,6 +59,7 @@ data class CustomTtsUiState(
     val fallbackSpeakerId: String = "",
     val fallbackSpeed: Float = 1.0f,
     val customSpeed: Float = 1.0f,
+    val localSpeed: Boolean = true,
     val remoteTimeoutMs: String = "10000",
     val fallbackEngines: ImmutableList<CustomTtsEngineOptionUi> = persistentListOf(),
     val fallbackVoices: ImmutableList<CustomTtsVoiceOptionUi> = persistentListOf(),
@@ -93,6 +94,7 @@ sealed interface CustomTtsIntent {
     data class SetFallbackVoice(val speakerId: String) : CustomTtsIntent
     data class SetFallbackSpeed(val value: Float) : CustomTtsIntent
     data class SetCustomSpeed(val value: Float) : CustomTtsIntent
+    data class SetLocalSpeed(val value: Boolean) : CustomTtsIntent
     data class SetRemoteTimeout(val value: String) : CustomTtsIntent
     data class SetSegmentStairs(val value: String) : CustomTtsIntent
     data class SetSegmentTarget(val value: String) : CustomTtsIntent

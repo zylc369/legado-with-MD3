@@ -2283,6 +2283,9 @@ class ReadBookViewModel(
      */
     private fun navigateToSearchResult(result: SearchResult) {
         val query = _uiState.value.searchContentQuery
+        AppLog.putDebug(
+            "搜索定位: VM导航 query=${query} chapter=${result.chapterIndex}"
+        )
         if (query.isEmpty()) return
         _effects.tryEmit(
             ReadBookEffect.NavigateToSearchResult(result)

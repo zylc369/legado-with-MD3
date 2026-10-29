@@ -84,6 +84,7 @@ import io.legado.app.utils.printOnDebug
 import io.legado.app.utils.servicePendingIntent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -225,6 +226,7 @@ class HttpReadAloudService : BaseReadAloudService(),
     private var hybridAudioDone: CompletableDeferred<Unit>? = null
     /** 当前混合段是否由系统 TTS 直接 speak（决定暂停时是否需要取消驱动）。 */
     private var hybridCurrentSystemTts = false
+    private var hybridPrewarmed = false
     /** 当前混合段音频的烘焙速度与目标速度来源（播放中为非空，比值调速用）。 */
     private var hybridAudioBakedSpeed = 1f
     private var hybridAudioTargetSpeed: (() -> Float)? = null
@@ -291,6 +293,57 @@ class HttpReadAloudService : BaseReadAloudService(),
         hybridCoordinator?.stop()
         hybridCoordinator = null
         hybridUnits = emptyList()
+        hybridPrewarmed = false
+    }
+
+    /**
+     * 下一章开头的远端预热（标题 + 首两个正文段）。
+     *
+     * 用与 [io.legado.app.service.BaseReadAloudService.newReadAloud] 完全相同的
+     * 章节→单元构建路径，保证预热文本与换章后的单元逐字一致、md5 缓存必然命中；
+     * 分页未就绪时短暂等待，等不到就放弃（换章后仍走正常的段级赛跑）。
+     */
+    private fun prewarmNextChapterRemote() {
+        val coordinator = hybridCoordinator ?: return
+        lifecycleScope.launch(IO) {
+            val input = ReadBook.readerChapterInputWindow.next ?: return@launch
+            if (input.chapter.index != ReadBook.durChapterIndex + 1) return@launch
+            val pagination = ReadBook.readerPagination(input.chapter.index)
+                ?: ReadBook.awaitReaderPagination(
+                    chapterIndex = input.chapter.index,
+                    timeoutMillis = 2_000,
+                )
+                ?: return@launch
+            val contentSplitMode = resolveContentSplitMode()
+            val chapter = ReaderReadAloudChapter.create(
+                chapterIndex = input.chapter.index,
+                title = input.displayTitle,
+                semanticContent = input.source.semanticContent,
+                pageStarts = pagination.pageStarts,
+                contentSplitMode = contentSplitMode,
+            )
+            val units = buildPlaybackUnits(
+                chapter = chapter,
+                splitByPage = contentSplitMode == ReadAloudContentSplitMode.Page,
+                policy = contentSplitPolicy(contentSplitMode),
+            )
+            val shouldReadTitle = decideReadAloudChapterUnits(
+                unitCount = units.size,
+                chapterTitle = chapter.title,
+                startsAtChapterBeginning = true,
+                moveToLast = false,
+            ).readTitle
+            val texts = buildList {
+                if (shouldReadTitle) add(input.displayTitle.trim())
+                units.take(2).forEach { add(it.text) }
+            }
+            if (texts.isEmpty()) return@launch
+            AppLog.putDebug(
+                "混合TTS: 跨章预热 章${input.chapter.index} 段数=${texts.size}" +
+                    " 首段${texts.firstOrNull()?.take(10) ?: "-"}"
+            )
+            coordinator.prewarm(texts)
+        }
     }
 
     override fun onCreate() {
@@ -537,10 +590,28 @@ class HttpReadAloudService : BaseReadAloudService(),
                     remoteTimeoutMs = { currentHybridSettings().hybrid.remoteTimeoutMs.toLong() },
                     remoteParams = {
                         val current = currentHybridSettings()
-                        (current.voices[current.defaultVoiceId] ?: CustomTtsVoiceParams())
-                            .copy(speed = current.hybrid.customSpeed)
+                        val params =
+                            current.voices[current.defaultVoiceId] ?: CustomTtsVoiceParams()
+                        // 本地调速开启：远端恒 1.0x 合成，定制速度只走播放端比值
+                        // （bakedSpeed=1.0，比值=customSpeed/1.0）。附带收益：音频缓存跨速度复用。
+                        if (current.hybrid.localSpeed) {
+                            params.copy(speed = 1f)
+                        } else {
+                            params.copy(speed = current.hybrid.customSpeed)
+                        }
                     },
-                    fallbackSpeed = { currentHybridSettings().hybrid.fallbackSpeed },
+                    fallbackSpeed = {
+                        val hybrid = currentHybridSettings().hybrid
+                        // HTTP 兜底的源参数是 0.1 刻度整数：烘录实际生效速度，
+                        // 否则 0.95 的设置按 0.9 合成、比值记 1.0，听感错 0.05。
+                        if (hybrid.fallbackEngineType == ReadAloudVoice.ENGINE_HTTP) {
+                            ReadAloudSpeed.fromTenths(
+                                ReadAloudSpeed.httpSourceSpeed(hybrid.fallbackSpeed)
+                            )
+                        } else {
+                            hybrid.fallbackSpeed
+                        }
+                    },
                     remoteSynth = { text, params ->
                         synthesizeRemoteSegment(
                             text, params, currentHybridSettings().hybrid.remoteTimeoutMs,
@@ -555,7 +626,8 @@ class HttpReadAloudService : BaseReadAloudService(),
                 )
                 hybridCoordinator = coordinator
                 coordinator.start(units.map { it.text })
-                if (!startUnit.isChapterTitle) coordinator.prefetch(startIndex)
+                // 标题单元同样可走远端（预热命中即远端音色报标题）
+                coordinator.prefetch(startIndex)
                 AppLog.putDebug(
                     "混合朗读: units=${units.size} start=$startIndex" +
                         " defaultVoice=${settings.defaultVoiceId.ifEmpty { "<引擎默认>" }}" +
@@ -630,7 +702,25 @@ class HttpReadAloudService : BaseReadAloudService(),
             coordinator.prefetch(index + 1)
             coordinator.prefetch(index + 2)
 
-            val remote = if (units[index].isChapterTitle) null else coordinator.remoteReady(index)
+            // 跨章预热：本章只剩 2 段时，提前为下一章开头（标题+首段）发起远端合成，
+            // 结果落 md5 缓存；换章重建协调器后缓存探测直接命中，消除"换章必兜底"。
+            if (!hybridPrewarmed && index >= units.lastIndex - 1) {
+                hybridPrewarmed = true
+                prewarmNextChapterRemote()
+            }
+
+            val remote = if (index == startIndex && !settings.hybrid.firstSegmentFallback) {
+                // 首段不降级：阻塞等远端（作业自带超时预算），超时/失败才落兜底
+                val waitStartedAt = System.currentTimeMillis()
+                val awaited = coordinator.awaitRemote(index)
+                AppLog.putDebug(
+                    "混合TTS: 首段等待远端 ${System.currentTimeMillis() - waitStartedAt}ms" +
+                        " 结果=${if (awaited != null) "远端" else "兜底"}"
+                )
+                awaited
+            } else {
+                coordinator.remoteReady(index)
+            }
             val decision = coordinator.decide(index, remote != null)
             coordinator.drainSwitches().forEach { switch ->
                 toastOnUi(

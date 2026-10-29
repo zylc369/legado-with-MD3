@@ -14,10 +14,16 @@ class HybridTtsPolicyTest {
     )
 
     @Test
-    fun `首段兜底开关开启时强制兜底`() {
+    fun `首段兜底开关开启且远端就绪时仍用远程`() {
         val p = policy(firstFallback = true)
-        assertEquals(HybridTtsDecision.Fallback, p.decide(0, remoteReady = true))
-        assertTrue(p.drainSwitchEvents(0).isEmpty()) // 首段兜底是预期行为，不提示
+        assertEquals(HybridTtsDecision.Remote, p.decide(0, remoteReady = true))
+    }
+
+    @Test
+    fun `首段兜底开关开启且远端未就绪时用兜底且不产生切换提示`() {
+        val p = policy(firstFallback = true)
+        assertEquals(HybridTtsDecision.Fallback, p.decide(0, remoteReady = false))
+        assertTrue(p.drainSwitchEvents(0).isEmpty()) // 首段（无前一决策）不提示
     }
 
     @Test

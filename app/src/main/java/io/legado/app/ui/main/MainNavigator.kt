@@ -360,9 +360,14 @@ object MainNavigator {
     ): Boolean {
         if (fromRoute != null) {
             if (backStack.lastOrNull() != fromRoute) {
+                AppLog.putDebug(
+                    "搜索定位: navigateBack拒绝(非栈顶) from=${fromRoute::class.simpleName}" +
+                        " top=${backStack.lastOrNull()?.let { it::class.simpleName }}"
+                )
                 return false
             }
         } else if (backNavigationInProgress) {
+            AppLog.putDebug("搜索定位: navigateBack拒绝(返回进行中)")
             return false
         }
         if (backStack.size > 1) {

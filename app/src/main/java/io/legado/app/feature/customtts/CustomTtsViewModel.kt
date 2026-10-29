@@ -105,6 +105,7 @@ class CustomTtsViewModel(
             is CustomTtsIntent.SetFallbackVoice -> update { copy(fallbackSpeakerId = intent.speakerId) }
             is CustomTtsIntent.SetFallbackSpeed -> update { copy(fallbackSpeed = ReadAloudSpeed.quantize(intent.value)) }
             is CustomTtsIntent.SetCustomSpeed -> update { copy(customSpeed = ReadAloudSpeed.quantize(intent.value)) }
+            is CustomTtsIntent.SetLocalSpeed -> update { copy(localSpeed = intent.value) }
             is CustomTtsIntent.SetRemoteTimeout -> update { copy(remoteTimeoutMs = intent.value) }
             is CustomTtsIntent.SetSegmentStairs -> update { copy(segmentStairsText = intent.value) }
             is CustomTtsIntent.SetSegmentTarget -> update { copy(segmentTarget = intent.value) }
@@ -232,6 +233,7 @@ class CustomTtsViewModel(
                     fallbackSpeakerId = settings.hybrid.fallbackSpeakerId,
                     fallbackSpeed = ReadAloudSpeed.quantize(settings.hybrid.fallbackSpeed),
                     customSpeed = ReadAloudSpeed.quantize(settings.hybrid.customSpeed),
+                    localSpeed = settings.hybrid.localSpeed,
                     remoteTimeoutMs = settings.hybrid.remoteTimeoutMs.toString(),
                     segmentStairsText = settings.segmentStairs.joinToString(","),
                     segmentTarget = settings.segmentTarget.toString(),
@@ -374,6 +376,7 @@ class CustomTtsViewModel(
                 fallbackSpeakerId = s.fallbackSpeakerId,
                 fallbackSpeed = ReadAloudSpeed.quantize(s.fallbackSpeed),
                 customSpeed = ReadAloudSpeed.quantize(s.customSpeed),
+                localSpeed = s.localSpeed,
             ),
             segmentTarget = target,
             segmentStairs = stairs,

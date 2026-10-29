@@ -3,6 +3,7 @@ package io.legado.app.ui.widget.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -10,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.legado.app.R
 import io.legado.app.ui.theme.LegadoTheme
@@ -28,7 +30,13 @@ fun ValueStepper(
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /** +/- 每次加减的步长。 */
     stepSize: Float = 1f,
+    /** 加减后吸附的网格；默认与 [stepSize] 一致。拖动条支持 0.01 精度时传 0.01，
+     *  加减 0.1 后落在 1.02 这类百分位而不是被拽回 0.1 网格。 */
+    snapSize: Float = stepSize,
+    /** 值卡最小宽度：容下 "0.95" 这类多位小数并居中；null = 包裹内容。 */
+    displayMinWidth: Dp? = null,
     showDecimal: Boolean = false,
     valueFormat: ((Float) -> String)? = null,
     content: (@Composable RowScope.() -> Unit)? = null,
@@ -40,7 +48,7 @@ fun ValueStepper(
     ) {
         SmallOutlinedButton(
             onClick = {
-                onValueChange(snapToStep(value - stepSize, valueRange, stepSize))
+                onValueChange(snapToStep(value - stepSize, valueRange, snapSize))
             },
             enabled = enabled,
             icon = Icons.Default.Remove,
@@ -55,17 +63,25 @@ fun ValueStepper(
                 displayValue.toInt().toString()
             }
             TextCard(
+                modifier = displayMinWidth
+                    ?.let { Modifier.widthIn(min = it) }
+                    ?: Modifier,
                 cornerRadius = 8.dp,
                 horizontalPadding = 8.dp,
                 verticalPadding = 4.dp,
                 text = displayText,
                 backgroundColor = LegadoTheme.colorScheme.surfaceContainerHigh,
-                contentColor = LegadoTheme.colorScheme.onSurface
+                contentColor = LegadoTheme.colorScheme.onSurface,
+                horizontalArrangement = if (displayMinWidth != null) {
+                    Arrangement.Center
+                } else {
+                    Arrangement.Start
+                },
             )
         }
         SmallOutlinedButton(
             onClick = {
-                onValueChange(snapToStep(value + stepSize, valueRange, stepSize))
+                onValueChange(snapToStep(value + stepSize, valueRange, snapSize))
             },
             enabled = enabled,
             icon = Icons.Default.Add,

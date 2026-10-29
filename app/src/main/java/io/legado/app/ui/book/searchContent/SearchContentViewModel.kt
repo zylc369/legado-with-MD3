@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.legado.app.data.entities.Book
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.SearchContentHistory
 import io.legado.app.data.repository.BookRepository
 import io.legado.app.data.repository.SearchContentRepository
@@ -248,6 +249,10 @@ class SearchContentViewModel(
         stopSearch()
         val results = _uiState.value.searchResults
         val index = results.indexOf(result)
+        AppLog.putDebug(
+            "搜索定位: 点击结果 index=$index/${results.size} chapter=${result.chapterIndex}" +
+                " query=${result.query} pos=${result.queryIndexInChapter}"
+        )
         if (index < 0) return
         resultOpened = true
         SearchContentResult.emitResult(
