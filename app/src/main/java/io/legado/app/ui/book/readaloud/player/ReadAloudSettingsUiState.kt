@@ -40,7 +40,7 @@ data class ReadAloudSettingsUiState(
     val capsuleAutoCollapse: Boolean = true,
     val readAloudIgnoreAudioFocus: Boolean = false,
     val readAloudPauseOnPhoneCall: Boolean = false,
-    val readAloudWakeLock: Boolean = false,
+    val readAloudWakeLock: Boolean = true,
     val readAloudKeepOnExit: Boolean = false,
     val readAloudMediaButtonPerNext: Boolean = false,
     val readAloudAndroidMediaControl: Boolean = false,

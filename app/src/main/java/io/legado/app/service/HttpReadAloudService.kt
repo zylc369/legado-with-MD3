@@ -85,6 +85,7 @@ import io.legado.app.utils.servicePendingIntent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -227,6 +228,18 @@ class HttpReadAloudService : BaseReadAloudService(),
     /** 当前混合段是否由系统 TTS 直接 speak（决定暂停时是否需要取消驱动）。 */
     private var hybridCurrentSystemTts = false
     private var hybridPrewarmed = false
+
+    /**
+     * 混合驱动代数：clearHybridState 递增。驱动协程每次段边界校验自己是否仍是
+     * 当代——重叠的 playCustomHybrid（暂停/恢复、章节切换连发）曾让上一代驱动
+     * 的取消落空，留下与新一代并行推进的僵尸驱动。
+     */
+    private val hybridDriverGeneration = java.util.concurrent.atomic.AtomicInteger()
+
+    private companion object {
+        /** 段完成看门狗：播放位置停滞宽限（含起播缓冲与排期抖动）。 */
+        const val WATCHDOG_STALL_MS = 20_000L
+    }
     /** 当前混合段音频的烘焙速度与目标速度来源（播放中为非空，比值调速用）。 */
     private var hybridAudioBakedSpeed = 1f
     private var hybridAudioTargetSpeed: (() -> Float)? = null
@@ -294,6 +307,7 @@ class HttpReadAloudService : BaseReadAloudService(),
         hybridCoordinator = null
         hybridUnits = emptyList()
         hybridPrewarmed = false
+        hybridDriverGeneration.incrementAndGet()
     }
 
     /**
@@ -584,6 +598,7 @@ class HttpReadAloudService : BaseReadAloudService(),
                 )
 
                 // 速度/超时按段现读：保存后新请求用新值；旧段由播放端比值调速接管。
+                val generationAtPrepare = hybridDriverGeneration.get()
                 val coordinator = HybridSynthesisCoordinator(
                     scope = lifecycleScope,
                     policy = HybridTtsPolicy(settings.hybrid),
@@ -645,6 +660,13 @@ class HttpReadAloudService : BaseReadAloudService(),
                         " gatewayError=${RemoteLinkManager.lastError}"
                 )
                 hybridDriverJob?.cancel()
+                if (generationAtPrepare != hybridDriverGeneration.get()) {
+                    AppLog.putDebug("混合朗读: 准备期间会话已重建，放弃本代驱动")
+                    coordinator.stop()
+                    if (hybridCoordinator === coordinator) hybridCoordinator = null
+                    if (hybridUnits === units) hybridUnits = emptyList()
+                    return@withLock
+                }
                 hybridDriverJob = lifecycleScope.launch {
                     try {
                         runHybridDriver(
@@ -686,8 +708,11 @@ class HttpReadAloudService : BaseReadAloudService(),
         settings: CustomTtsSettings,
     ) {
         val systemFallback = settings.hybrid.fallbackEngineType == ReadAloudVoice.ENGINE_SYSTEM
+        val generation = hybridDriverGeneration.get()
         for (index in startIndex..units.lastIndex) {
             currentCoroutineContext().ensureActive()
+            // 上一代驱动（重建竞态中未被取消者）不得继续推进
+            if (generation != hybridDriverGeneration.get()) return
             if (!isHybridPlaybackActive()) return
             // 段间停顿期间暂停：等待恢复，避免延迟结束后直接开始下一段（系统 TTS 无法 pause）。
             while (pause && isHybridPlaybackActive()) {
@@ -780,7 +805,16 @@ class HttpReadAloudService : BaseReadAloudService(),
         return ReadAloudSpeed.hybridRatio(target, hybridAudioBakedSpeed)
     }
 
-    /** 播放一段本地音频，直到 STATE_ENDED（由播放器回调完成）。 */
+    /**
+     * 播放一段本地音频直到完成。完成信号有三重来源，缺一不可：
+     * 1. 正常路径：`STATE_ENDED` 回调完成 [hybridAudioDone]；
+     * 2. 补收路径：深睡/冻结解冻后回调可能已丢，但播放器状态已是 ENDED——轮询补收；
+     * 3. 看门狗：播放器停摆（熄屏深睡解码中断/冻结）时 ENDED 永不到来，
+     *    按「时长/倍速 + 宽限」兜底，超时视为本段结束并停掉播放器再推进。
+     *    实测存在挂起 92 分钟的僵尸段（09:35 开始、11:07 恢复后才"播放完成"），
+     *    任何单点等待都会把偶发的系统停摆变成永久卡死。
+     * 看门狗只累计**非暂停**的等待时间：用户暂停时段落不推进、也不误杀。
+     */
     private suspend fun playHybridAudio(
         file: File,
         bakedSpeed: Float,
@@ -798,8 +832,35 @@ class HttpReadAloudService : BaseReadAloudService(),
             exoPlayer.setPlaybackSpeed(hybridFilePlaybackSpeed())
             if (!pause) exoPlayer.play()
         }
+        // 停滞检测基于播放进度而非时长预算：段中变速（0.5x~3.0x）不会误判——
+        // 只要 currentPosition 在推进就是正常播放；位置冻结超过宽限期（且非暂停）
+        // 才是解码停摆/回调丢失，兜底停掉播放器并推进，杜绝僵尸段。
+        var lastPosition = -1L
+        var stalledMs = 0L
         try {
-            done.await()
+            while (true) {
+                val got = withTimeoutOrNull(1_000) { done.await() }
+                if (got != null) break
+                // 补收：回调丢了但播放器已到达结束态
+                if (exoPlayer.playbackState == Player.STATE_ENDED) break
+                if (pause) continue
+                val position = exoPlayer.currentPosition
+                if (position != lastPosition) {
+                    lastPosition = position
+                    stalledMs = 0
+                } else {
+                    stalledMs += 1_000
+                    if (stalledMs >= WATCHDOG_STALL_MS) {
+                        AppLog.put(
+                            "混合TTS: 段完成看门狗触发（位置${position}ms 停滞" +
+                                "${stalledMs}ms，state=${exoPlayer.playbackState} " +
+                                "playing=${exoPlayer.isPlaying}）"
+                        )
+                        withContext(Main) { exoPlayer.stop() }
+                        break
+                    }
+                }
+            }
         } finally {
             if (hybridAudioDone === done) hybridAudioDone = null
             hybridAudioTargetSpeed = null
@@ -1865,10 +1926,12 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         super.onPlaybackStateChanged(playbackState)
-        if (playbackState == Player.STATE_ENDED && isHybridDriverActive) {
+        if (playbackState == Player.STATE_ENDED && hybridAudioDone != null) {
             // 混合驱动按段播放：完成当前段，由驱动决定下一段用远端还是兜底。
             // 先取出并置空再完成：Main.immediate 下 complete 会同步恢复驱动，
             // 驱动会立刻给 hybridAudioDone 赋新值；先置空可避免把新值清掉。
+            // 门槛用 hybridAudioDone 而非 isHybridDriverActive：驱动重建窗口里
+            // （旧驱动还在等、新驱动未启动）事件也不能丢——丢一次就是僵尸段。
             val done = hybridAudioDone
             hybridAudioDone = null
             done?.complete(Unit)

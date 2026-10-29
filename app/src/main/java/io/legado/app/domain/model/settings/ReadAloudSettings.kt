@@ -52,7 +52,11 @@ data class ReadAloudSettings(
     val mediaButtonOnExit: Boolean = true,
     val readAloudByMediaButton: Boolean = false,
     val pauseReadAloudWhilePhoneCalls: Boolean = false,
-    val readAloudWakeLock: Boolean = false,
+    /**
+     * 朗读时持有 PARTIAL_WAKE_LOCK。默认开启：熄屏后 CPU 深睡会让播放器解码停摆、
+     * 段完成回调永不到来（实测存在挂起 92 分钟的段），三条朗读引擎路径共同受害。
+     */
+    val readAloudWakeLock: Boolean = true,
     /** 退出阅读界面时不停朗读，继续在后台/胶囊里播放。 */
     val keepReadAloudOnExit: Boolean = false,
     val showReadAloudCapsule: Boolean = true,

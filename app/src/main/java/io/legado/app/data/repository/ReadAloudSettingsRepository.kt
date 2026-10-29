@@ -85,7 +85,7 @@ internal fun Preferences.toReadAloudSettings(): ReadAloudSettings = ReadAloudSet
     readAloudByMediaButton = compatDsValue(ReadAloudKeys.ReadAloudByMediaButton, false),
     pauseReadAloudWhilePhoneCalls =
         compatDsValue(ReadAloudKeys.PauseReadAloudWhilePhoneCalls, false),
-    readAloudWakeLock = compatDsValue(ReadAloudKeys.ReadAloudWakeLock, false),
+    readAloudWakeLock = compatDsValue(ReadAloudKeys.ReadAloudWakeLock, true),
     keepReadAloudOnExit = compatDsValue(ReadAloudKeys.KeepReadAloudOnExit, false),
     showReadAloudCapsule = compatDsValue(ReadAloudKeys.ShowReadAloudCapsule, true),
     capsuleAutoCollapse = compatDsValue(ReadAloudKeys.CapsuleAutoCollapse, true),
