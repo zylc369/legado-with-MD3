@@ -128,6 +128,9 @@ class TTSReadAloudService : BaseReadAloudService(), KoinComponent {
             if (contentList.isNotEmpty()) play()
         } else {
             toastOnUi(R.string.tts_init_failed)
+            // 引擎初始化失败且仍在“播放中”：收回播放态资源，避免唤醒锁/保活音频
+            // 与媒体会话 PLAYING 状态在无实际播放时一直挂着。
+            if (isRun && !pause) pauseReadAloud()
         }
     }
 

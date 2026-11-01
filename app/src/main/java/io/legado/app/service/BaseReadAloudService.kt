@@ -68,6 +68,7 @@ import io.legado.app.receiver.MediaButtonReceiver
 import io.legado.app.service.BaseReadAloudService.Companion.speechDrivingNavigation
 import io.legado.app.domain.gateway.PlaybackCapsuleGateway
 import io.legado.app.domain.model.PlaybackCapsuleSource
+import io.legado.app.service.readaloud.PlaybackResources
 import io.legado.app.service.readaloud.ReadAloudOverlayWindow
 import io.legado.app.ui.config.readConfig.ReadConfig
 import io.legado.app.ui.main.MainActivity
@@ -205,7 +206,18 @@ abstract class BaseReadAloudService : BaseService(),
         get(ReadAloudSessionStore::class.java)
     }
 
-    private val useWakeLock = ReadConfig.readAloudWakeLock
+    /**
+     * 播放期资源（唤醒锁 / WiFi 锁 / 保活音频）的唯一所有权。
+     * 唤醒锁按**当前设置**获取：朗读设置关闭后下一次转换即生效。
+     * 见 [PlaybackResources]：历史上"获取只在 play()、恢复路径不获取"导致
+     * 一次暂停后熄屏即深睡、下一段永久不读。
+     */
+    private val playbackResources: PlaybackResources by lazy {
+        PlaybackResources(
+            wakeLockProvider = { if (ReadConfig.readAloudWakeLock) wakeLock else null },
+            wifiLockProvider = { if (ReadConfig.readAloudWakeLock) wifiLock else null },
+        )
+    }
     private val wakeLock by lazy {
         powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "legado:ReadAloudService")
             .apply {
@@ -459,12 +471,9 @@ abstract class BaseReadAloudService : BaseService(),
         capsuleOverlayWindow = null
         ReadBook.upReadTime()
         super.onDestroy()
+        playbackResources.release("destroy")
         prepareReadAloudGeneration++
         prepareReadAloudJob?.cancel()
-        if (useWakeLock) {
-            wakeLock.release()
-            wifiLock?.release()
-        }
         isRun = false
         pause = true
         sessionStore.stop()
@@ -765,17 +774,21 @@ abstract class BaseReadAloudService : BaseService(),
         chapter.paragraphs(splitByPage, policy)
     )
 
-    @SuppressLint("WakelockTimeout")
     open fun play() {
         if (stopRequested) return
-        if (useWakeLock) {
-            wakeLock.acquire()
-            wifiLock?.acquire()
-        }
         isRun = true
+        enterPlayback("play")
+    }
+
+    /**
+     * 进入播放态的唯一入口：`play()` 与所有恢复路径（通知栏/MediaSession/焦点恢复/
+     * 通话结束/章节等待恢复）都必须经过这里，避免资源获取被某条路径漏掉。
+     */
+    private fun enterPlayback(reason: String) {
         pause = false
         needResumeOnAudioFocusGain = false
         needResumeOnCallStateIdle = false
+        playbackResources.acquire(reason)
         upMediaSessionPlaybackState(PlaybackStateCompat.STATE_PLAYING)
         upMediaProgress()
         upReadAloudNotification()
@@ -791,10 +804,7 @@ abstract class BaseReadAloudService : BaseService(),
     @CallSuper
     open fun pauseReadAloud(abandonFocus: Boolean = true) {
         ReadBook.upReadTime()
-        if (useWakeLock) {
-            wakeLock.release()
-            wifiLock?.release()
-        }
+        playbackResources.release("pause")
         pause = true
         if (abandonFocus) {
             abandonFocus()
@@ -812,24 +822,13 @@ abstract class BaseReadAloudService : BaseService(),
         }
     }
 
-    @SuppressLint("WakelockTimeout")
     @CallSuper
     open fun resumeReadAloud() {
         resumeReadAloudInternal()
     }
 
     private fun resumeReadAloudInternal() {
-        pause = false
-        needResumeOnAudioFocusGain = false
-        needResumeOnCallStateIdle = false
-        upReadAloudNotification()
-        upMediaSessionPlaybackState(PlaybackStateCompat.STATE_PLAYING)
-        upMediaProgress()
-        sessionStore.setStatus(ReadAloudSessionStatus.Playing)
-        postEvent(EventBus.ALOUD_STATE, Status.PLAY)
-        if (!ReadBook.isAutoSaveSessionRunning) {
-            ReadBook.startReadSession()
-        }
+        enterPlayback("resume")
     }
 
     abstract fun upSpeechRate(reset: Boolean = false)
